@@ -1,4 +1,7 @@
 import {privacyPage} from './privacy-page.js';
+import {normalizeManagementCommand} from './management-rules.js';
+import {managementPage} from './management-page.js';
+import {loadReport,reportPage,reportCsv} from './reports.js';
 import {normalizeModuleCommand,requireModuleUnit} from './module-rules.js';
 import {loadModule,modulePage,moduleActionPage} from './module-page.js';
 import {normalizeRegistrationCommand} from './registration-rules.js';
@@ -23,7 +26,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 function one(params, key) {
   fail(params.getAll(key).length <= 1, 'DUPLICATE_PARAMETER', 400);
   return params.get(key);
@@ -110,6 +113,13 @@ export function createApp(config, dependencies = {}) {
         res.setHeader('Set-Cookie', [codec.clear('session'), codec.clear('flow')]);
         return redirect('/');
       }
+      if(req.method==='POST'&&url.pathname==='/api/management'){
+        fail(writerConfigured(config),'WRITES_DISABLED');fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
+        const {csrf,...input}=await writeBody(req);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);const command=normalizeManagementCommand(input);
+        fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
+        fail(!['account','setting','announcement','response'].includes(command.action)||access.user.role==='admin','ADMIN_REQUIRED',403);
+        return json(200,await writer.execute(identity,command,'management'));
+      }
       if(req.method==='POST'&&url.pathname==='/api/assessment/write'){
         fail(config.moduleWrites&&writerConfigured(config),'WRITES_DISABLED');
         fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
@@ -143,6 +153,13 @@ export function createApp(config, dependencies = {}) {
         return json(200,await writer.execute(identity,command));
       }
       if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return json(405, { error: 'WRITES_DISABLED' }); }
+      if(['/admin/users','/admin/settings','/news','/notifications','/hait/comments','/reports','/reports.csv'].includes(url.pathname)){
+        if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        const query={hospitalId:one(url.searchParams,'hospital_id'),module:one(url.searchParams,'module'),year:one(url.searchParams,'year')};
+        if(url.pathname.startsWith('/reports')){const model=await loadReport(store,access,query);if(url.pathname.endsWith('.csv')){res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="assessment-${model.module}${model.module==='mou'?'-'+model.year:''}.csv"`});return res.end(reportCsv(model));}res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(reportPage(model));}
+        const body=await managementPage(url.pathname,store,access,query,{csrf:identity.csrf,enabled:writerConfigured(config)});res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
+      }
       if(['/ctam','/hait','/ctam/action','/hait/action'].includes(url.pathname)){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
         const access=await resolveAccess(identity,store),module=url.pathname.split('/')[1];

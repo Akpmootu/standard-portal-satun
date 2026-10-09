@@ -490,7 +490,113 @@ function planModuleWrite(tables,identity,input,sha,now=new Date()){
 
 return {MODULES,requireModuleUnit,normalizeModuleCommand,planModuleWrite};
 })();
-var WRITER_SCHEMA={"ctam_items":{"headers":["id","item_number","title","title_en","description","sort_order","created_at","_version","_request_id"],"maxRows":500},"rg12_chapters":{"headers":["id","chapter_number","title","sort_order","created_at","_version","_request_id"],"maxRows":100},"rg12_sub_items":{"headers":["id","chapter_id","item_text","sort_order","_version","_request_id"],"maxRows":500},"ctam_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"hait_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"mou_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"mou_agencies":{"headers":["id","user_group","classification_source","status","_version","_request_id"],"maxRows":100},"mou_categories":{"headers":["id","category_number","title","sort_order","_version","_request_id"],"maxRows":100},"mou_items":{"headers":["id","category_id","item_number","title","target_group","period","sort_order","_version","_request_id"],"maxRows":500},"mou_settings":{"headers":["id","setting_key","setting_value","label","updated_at","updated_by","_version","_request_id"],"maxRows":100},"users":{"headers":["id","username","role","user_group","last_login_at","hospital_id","created_at","account_status","_version","_request_id"],"maxRows":1000},"identities":{"headers":["id","provider","provider_subject","legacy_user_id","email","email_verified","status","approved_by","approved_at","created_at","_version"],"maxRows":1000},"mou_progress":{"headers":["id","hospital_id","item_id","fiscal_year","status","assessment_detail","evidence_type","evidence_file","evidence_link","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","updated_at","updated_by","_version","_request_id"],"maxRows":5000},"ctam_progress":{"headers":["id","hospital_id","item_id","responsible_person","assessment_detail","evidence_type","evidence_file","evidence_link","updated_at","updated_by","status","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","_version","_request_id"],"maxRows":5000},"rg12_progress":{"headers":["id","hospital_id","sub_item_id","is_completed","status","responsible_person","assessment_detail","evidence_type","evidence_file","evidence_link","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","updated_at","updated_by","_version","_request_id"],"maxRows":5000},"files":{"headers":["id","drive_file_id","hospital_id","record_type","record_id","original_filename","mime_type","size_bytes","sha256","upload_state","created_by","created_at","_version"],"maxRows":5000},"reviewer_profiles":{"headers":["id","user_id","display_name","hospital_ids","fiscal_years","status","approved_by","approved_at","_version","_request_id"],"maxRows":1000},"registration_requests":{"headers":["id","provider","provider_subject","email","display_name","job_title","organization","phone","requested_at","status","decided_at","decided_by","assigned_role","hospital_id","hospital_ids","fiscal_years","decision_note","_version","_request_id"],"maxRows":1000},"audit_log":{"headers":["id","actor_id","action","record_type","record_id","hospital_id","request_id","changed_fields","created_at"],"maxRows":20000},"write_requests":{"headers":["request_id","actor_id","operation","payload_sha256","record_type","record_id","state","result_version","created_at","completed_at"],"maxRows":20000}};
+var ManagementRules=(function(){
+const {fail} = WriterErrors;
+const {writeActor,bangkokTimestamp,validWriteLink} = WriterRules;
+const {reviewProfile} = WriterReviewAccess;
+const {MOU_HOSPITAL_IDS} = WriterReference;
+const {requireModuleUnit} = ModuleRules;
+const MANAGEMENT_TABLES=['announcements','notifications','rg12_comments','rg12_chapters'];
+function normalizeManagementCommand(c){
+ fail(c&&typeof c==='object'&&!Array.isArray(c),'INVALID_MANAGEMENT_COMMAND',400);
+ const extra={account:['userId','expectedVersion','role','hospitalId','hospitalIds','fiscalYears','accountStatus','displayName','note'],setting:['settingId','expectedVersion','value'],announcement:['announcementId','expectedVersion','title','message','link','linkText','active'],comment:['hospitalId','chapterId','expectedVersion','comment','needsHelp'],response:['hospitalId','chapterId','expectedVersion','response'],read:['notificationId','expectedVersion']}[c.action];
+ fail(extra&&Object.keys(c).length===extra.length+2&&Object.keys(c).every(k=>['requestId','action',...extra].includes(k)),'INVALID_MANAGEMENT_COMMAND',400);
+ fail(typeof c.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(c.requestId),'INVALID_REQUEST_ID',400);
+ fail(Number.isSafeInteger(c.expectedVersion)&&c.expectedVersion>=0&&c.expectedVersion<1e9,'INVALID_VERSION',400);
+ const out={...c,requestId:c.requestId.toLowerCase()},text=(key,max,required=false)=>{fail(typeof c[key]==='string'&&c[key].length<=max&&(!required||c[key].trim()),'INVALID_MANAGEMENT_FIELD',400);out[key]=c[key].trim();};
+ if(c.action==='account'){
+  text('userId',100,true);text('displayName',100);text('note',2000,true);
+  fail(['admin','reviewer','hospital'].includes(c.role)&&['active','disabled'].includes(c.accountStatus)&&typeof c.hospitalId==='string','INVALID_MANAGEMENT_FIELD',400);
+  reviewProfile([{user_id:'check',display_name:'check',status:'active',approved_by:'check',approved_at:'check',hospital_ids:JSON.stringify(c.hospitalIds),fiscal_years:JSON.stringify(c.fiscalYears)}],'check');
+  fail(Array.isArray(c.hospitalIds)&&Array.isArray(c.fiscalYears),'INVALID_MANAGEMENT_FIELD',400);
+  fail(c.role==='hospital'?MOU_HOSPITAL_IDS.includes(c.hospitalId):c.hospitalId==='','INVALID_HOSPITAL_MAPPING',400);
+  fail(c.role==='reviewer'?c.hospitalIds.length>0&&c.fiscalYears.length>0:c.hospitalIds.length===0&&c.fiscalYears.length===0,'REVIEW_SCOPE_REQUIRED',400);
+  fail(c.role==='hospital'||out.displayName,'REVIEW_PROFILE_REQUIRED',400);
+ }else if(c.action==='setting'){text('settingId',100,true);fail(['0','1'].includes(c.value),'INVALID_MANAGEMENT_FIELD',400);}
+ else if(c.action==='announcement'){text('announcementId',100);text('title',300,true);text('message',10000,true);text('link',2048);text('linkText',300);fail(!out.link||validWriteLink(out.link),'INVALID_EVIDENCE_LINK',400);fail(typeof c.active==='boolean','INVALID_MANAGEMENT_FIELD',400);}
+ else if(['comment','response'].includes(c.action)){
+  fail(MOU_HOSPITAL_IDS.includes(c.hospitalId)&&typeof c.chapterId==='string'&&/^[1-9]\d{0,15}$/.test(c.chapterId),'INVALID_MANAGEMENT_FIELD',400);
+  text(c.action==='comment'?'comment':'response',10000,true);if(c.action==='comment')fail(typeof c.needsHelp==='boolean','INVALID_MANAGEMENT_FIELD',400);
+ }else text('notificationId',100,true);
+ return out;
+}
+function planManagement(tables,identity,input,sha,now=new Date()){
+ const c=normalizeManagementCommand(input),actor=writeActor(identity,tables),time=bangkokTimestamp(now);
+ const admin=['account','setting','announcement','response'].includes(c.action);
+ fail(!admin||actor.role==='admin','ADMIN_REQUIRED',403);
+ fail(/^[a-f0-9]{64}$/.test(sha),'INVALID_PAYLOAD_HASH',400);
+ const receipts=tables.write_requests.filter(r=>r.request_id===c.requestId);fail(receipts.length<=1,'DUPLICATE_REQUEST_RECORD');
+ if(receipts.length){const r=receipts[0];fail(r.actor_id===actor.id&&r.record_type==='management'&&r.operation===c.action&&r.payload_sha256===sha,'REQUEST_ID_REUSED',409);fail(r.state==='committed','REQUEST_NOT_COMMITTED',409);return {replayed:true,result:{ok:true,requestId:c.requestId,recordId:r.record_id,version:r.result_version,replayed:true}};}
+ const changes=[];let next,table;
+ const check=r=>{fail(r,'MANAGEMENT_RECORD_NOT_FOUND',404);fail(r._version===c.expectedVersion,'VERSION_CONFLICT',409);return r;};
+ if(c.action==='account'){
+  table='users';const old=check(tables.users.find(u=>u.id===c.userId));
+  fail(old.id!==actor.id||c.accountStatus==='active'&&c.role==='admin','SELF_ADMIN_CHANGE_DENIED',409);
+  const links=tables.identities.filter(i=>i.legacy_user_id===old.id);fail(links.length===1&&links[0].approved_by&&links[0].approved_at,'IDENTITY_NOT_APPROVED',403);
+  const activeAdmins=tables.users.filter(u=>u.role==='admin'&&u.account_status==='active'&&tables.identities.some(i=>i.legacy_user_id===u.id&&i.status==='active'&&i.approved_by&&i.approved_at));
+  fail(old.role!=='admin'||old.account_status!=='active'||c.role==='admin'&&c.accountStatus==='active'||activeAdmins.length>1,'LAST_ADMIN_REQUIRED',409);
+  next={...old,role:c.role,hospital_id:c.hospitalId,account_status:c.accountStatus,_version:old._version+1,_request_id:c.requestId};
+  changes.push({table:'identities',existing:true,record:{...links[0],status:c.accountStatus,_version:links[0]._version+1}});
+  const profiles=tables.reviewer_profiles.filter(p=>p.user_id===old.id);fail(profiles.length<=1,'INVALID_REVIEW_PROFILE');const p=profiles[0];
+  if(p||c.role!=='hospital')changes.push({table:'reviewer_profiles',existing:Boolean(p),record:{...(p||{id:'profile-'+c.requestId,user_id:old.id}),display_name:c.displayName||p?.display_name||'',hospital_ids:JSON.stringify(c.hospitalIds),fiscal_years:JSON.stringify(c.fiscalYears),status:c.role==='hospital'?'disabled':c.accountStatus,approved_by:actor.id,approved_at:time,_version:(p? p._version:0)+1,_request_id:c.requestId}});
+ }else if(c.action==='setting'){
+  table='mou_settings';const old=check(tables.mou_settings.find(r=>r.id===c.settingId));fail(['allow_6months_edit','allow_9_12months_edit'].includes(old.setting_key),'INVALID_MOU_SETTING',400);
+  next={...old,setting_value:c.value,updated_at:time,updated_by:actor.id,_version:old._version+1,_request_id:c.requestId};
+ }else if(c.action==='announcement'){
+  table='announcements';const old=c.announcementId?check(tables.announcements.find(r=>r.id===c.announcementId)):null;fail(old||c.expectedVersion===0,'VERSION_CONFLICT',409);
+  next={id:old?.id||'announcement-'+c.requestId,title:c.title,message:c.message,link_url:c.link,link_text:c.linkText,is_active:c.active?1:0,created_at:old?.created_at||time,updated_at:time,_version:c.expectedVersion+1,_request_id:c.requestId};
+ }else if(['comment','response'].includes(c.action)){
+  table='rg12_comments';requireModuleUnit(tables,actor,'hait',c.hospitalId,c.action==='response');fail(tables.rg12_chapters.some(r=>r.id===c.chapterId),'ITEM_NOT_FOUND',404);
+  const rows=tables.rg12_comments.filter(r=>r.hospital_id===c.hospitalId&&r.chapter_id===c.chapterId);fail(rows.length<=1,'DUPLICATE_COMMENT');const old=rows[0];if(old)check(old);else fail(c.action==='comment'&&c.expectedVersion===0,'MANAGEMENT_RECORD_NOT_FOUND',404);
+  next={...(old||{id:'comment-'+c.requestId,hospital_id:c.hospitalId,chapter_id:c.chapterId,comment_text:'',needs_provincial_help:0,admin_response:'',created_at:time,updated_at:time,admin_responded_at:'',admin_responded_by:''}),_version:c.expectedVersion+1,_request_id:c.requestId};
+  if(c.action==='comment')Object.assign(next,{comment_text:c.comment,needs_provincial_help:c.needsHelp?1:0,updated_at:time,admin_response:'',admin_responded_at:'',admin_responded_by:''});
+  else Object.assign(next,{admin_response:c.response,admin_responded_at:time,admin_responded_by:reviewProfile(tables.reviewer_profiles,actor.id).name});
+ }else{
+  table='notifications';const old=check(tables.notifications.find(r=>r.id===c.notificationId));fail(old.user_id===actor.id,'NOTIFICATION_ACCESS_DENIED',403);next={...old,is_read:1,_version:old._version+1,_request_id:c.requestId};
+ }
+ changes.push({table,existing:tables[table].some(r=>r.id===next.id),record:next});
+ changes.push({table:'audit_log',existing:false,record:{id:'management-audit-'+c.requestId,actor_id:actor.id,action:c.action,record_type:table,record_id:next.id,hospital_id:next.hospital_id||'',request_id:c.requestId,changed_fields:JSON.stringify({fields:Object.keys(next).filter(k=>!k.startsWith('_')),note:c.note||''}),created_at:time}});
+ changes.push({table:'write_requests',existing:false,record:{request_id:c.requestId,actor_id:actor.id,operation:c.action,payload_sha256:sha,record_type:'management',record_id:next.id,state:'committed',result_version:next._version,created_at:time,completed_at:time}});
+ return {changes,replayed:false,result:{ok:true,requestId:c.requestId,recordId:next.id,version:next._version,replayed:false}};
+}
+
+return {MANAGEMENT_TABLES,normalizeManagementCommand,planManagement};
+})();
+var MigrationRules=(function(){
+const {fail} = WriterErrors;
+const {writeActor,bangkokTimestamp} = WriterRules;
+const {MOU_HOSPITAL_IDS} = WriterReference;
+const MIGRATION_HEADERS=['id','hospital_id','item_id','fiscal_year','status','assessment_detail','evidence_type','evidence_file','evidence_link','admin_status','admin_comment','admin_reviewed_at','admin_reviewed_by','updated_at','updated_by','_version','_request_id'];
+function normalizeMigrationCommand(c){
+ fail(c&&Object.keys(c).sort().join('|')==='action|requestId|rows'&&c.action==='import-mou'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(c.requestId)&&Array.isArray(c.rows)&&c.rows.length>0&&c.rows.length<=25,'INVALID_MIGRATION_COMMAND',400);
+ const ids=new Set();
+ for(const entry of c.rows){
+  fail(entry&&Object.keys(entry).sort().join('|')==='expectedVersion|record|table'&&entry.table==='mou_progress'&&Number.isSafeInteger(entry.expectedVersion)&&[0,1].includes(entry.expectedVersion),'INVALID_MIGRATION_COMMAND',400);
+  const r=entry.record;fail(r&&Object.keys(r).sort().join('|')===[...MIGRATION_HEADERS].sort().join('|'),'INVALID_MIGRATION_RECORD',400);
+  fail(typeof r.id==='string'&&/^legacy-mou-[1-9]\d{0,15}$/.test(r.id)&&!ids.has(r.id)&&MOU_HOSPITAL_IDS.includes(r.hospital_id)&&/^[1-9]\d{0,15}$/.test(r.item_id)&&Number.isInteger(r.fiscal_year)&&r.fiscal_year>=2500&&r.fiscal_year<=2700&&r._version===entry.expectedVersion+1&&r._request_id==='mou-delta-v1','INVALID_MIGRATION_RECORD',400);ids.add(r.id);
+  fail(['none','completed','in_progress','cannot_do'].includes(r.status)&&['pending','approved','rejected'].includes(r.admin_status)&&['none','link'].includes(r.evidence_type)&&r.evidence_file==='','INVALID_MIGRATION_RECORD',400);
+  for(const k of MIGRATION_HEADERS.filter(k=>!['fiscal_year','_version'].includes(k)))fail(typeof r[k]==='string'&&r[k].length<=(['assessment_detail','admin_comment'].includes(k)?10000:2048),'INVALID_MIGRATION_RECORD',400);
+ }
+ return c;
+}
+function planMigration(tables,identity,input,sha,now=new Date()){
+ const c=normalizeMigrationCommand(input),actor=writeActor(identity,tables);fail(actor.role==='admin','ADMIN_REQUIRED',403);fail(/^[a-f0-9]{64}$/.test(sha),'INVALID_PAYLOAD_HASH',400);
+ const receipts=tables.write_requests.filter(r=>r.request_id===c.requestId);fail(receipts.length<=1,'DUPLICATE_REQUEST_RECORD');
+ if(receipts.length){const r=receipts[0];fail(r.actor_id===actor.id&&r.record_type==='migration'&&r.operation===c.action&&r.payload_sha256===sha&&r.state==='committed','REQUEST_ID_REUSED',409);return {replayed:true,result:{ok:true,requestId:c.requestId,recordId:r.record_id,version:1,replayed:true}};}
+ const changes=[],seen=new Set();
+ for(const e of c.rows){const r=e.record,natural=r.hospital_id+'|'+r.item_id+'|'+r.fiscal_year;fail(!seen.has(natural),'DUPLICATE_MOU_PROGRESS');seen.add(natural);fail(tables.mou_items.some(i=>i.id===r.item_id),'ITEM_NOT_FOUND',404);
+  const matches=tables.mou_progress.filter(x=>x.hospital_id===r.hospital_id&&x.item_id===r.item_id&&Number(x.fiscal_year)===r.fiscal_year);fail(matches.length<=1,'DUPLICATE_MOU_PROGRESS');const old=matches[0];
+  fail(old?old.id===r.id&&old._version===e.expectedVersion:e.expectedVersion===0,'VERSION_CONFLICT',409);fail(!tables.mou_progress.some(x=>x.id===r.id&&x!==old),'DUPLICATE_MOU_PROGRESS');changes.push({table:e.table,record:r,existing:Boolean(old)});
+ }
+ const time=bangkokTimestamp(now),id='migration-'+c.requestId;
+ changes.push({table:'audit_log',existing:false,record:{id,actor_id:actor.id,action:c.action,record_type:'migration',record_id:id,hospital_id:'',request_id:c.requestId,changed_fields:JSON.stringify(c.rows.map(r=>r.record.id)),created_at:time}});
+ changes.push({table:'write_requests',existing:false,record:{request_id:c.requestId,actor_id:actor.id,operation:c.action,payload_sha256:sha,record_type:'migration',record_id:id,state:'committed',result_version:1,created_at:time,completed_at:time}});
+ return {changes,replayed:false,result:{ok:true,requestId:c.requestId,recordId:id,version:1,replayed:false}};
+}
+
+return {MIGRATION_HEADERS,normalizeMigrationCommand,planMigration};
+})();
+var WRITER_SCHEMA={"ctam_items":{"headers":["id","item_number","title","title_en","description","sort_order","created_at","_version","_request_id"],"maxRows":500},"rg12_chapters":{"headers":["id","chapter_number","title","sort_order","created_at","_version","_request_id"],"maxRows":100},"rg12_sub_items":{"headers":["id","chapter_id","item_text","sort_order","_version","_request_id"],"maxRows":500},"ctam_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"hait_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"mou_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"mou_agencies":{"headers":["id","user_group","classification_source","status","_version","_request_id"],"maxRows":100},"mou_categories":{"headers":["id","category_number","title","sort_order","_version","_request_id"],"maxRows":100},"mou_items":{"headers":["id","category_id","item_number","title","target_group","period","sort_order","_version","_request_id"],"maxRows":500},"mou_settings":{"headers":["id","setting_key","setting_value","label","updated_at","updated_by","_version","_request_id"],"maxRows":100},"users":{"headers":["id","username","role","user_group","last_login_at","hospital_id","created_at","account_status","_version","_request_id"],"maxRows":1000},"identities":{"headers":["id","provider","provider_subject","legacy_user_id","email","email_verified","status","approved_by","approved_at","created_at","_version"],"maxRows":1000},"mou_progress":{"headers":["id","hospital_id","item_id","fiscal_year","status","assessment_detail","evidence_type","evidence_file","evidence_link","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","updated_at","updated_by","_version","_request_id"],"maxRows":5000},"ctam_progress":{"headers":["id","hospital_id","item_id","responsible_person","assessment_detail","evidence_type","evidence_file","evidence_link","updated_at","updated_by","status","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","_version","_request_id"],"maxRows":5000},"rg12_progress":{"headers":["id","hospital_id","sub_item_id","is_completed","status","responsible_person","assessment_detail","evidence_type","evidence_file","evidence_link","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","updated_at","updated_by","_version","_request_id"],"maxRows":5000},"files":{"headers":["id","drive_file_id","hospital_id","record_type","record_id","original_filename","mime_type","size_bytes","sha256","upload_state","created_by","created_at","_version"],"maxRows":5000},"reviewer_profiles":{"headers":["id","user_id","display_name","hospital_ids","fiscal_years","status","approved_by","approved_at","_version","_request_id"],"maxRows":1000},"registration_requests":{"headers":["id","provider","provider_subject","email","display_name","job_title","organization","phone","requested_at","status","decided_at","decided_by","assigned_role","hospital_id","hospital_ids","fiscal_years","decision_note","_version","_request_id"],"maxRows":1000},"announcements":{"headers":["id","title","message","link_url","link_text","is_active","created_at","updated_at","_version","_request_id"],"maxRows":1000},"notifications":{"headers":["id","user_id","hospital_id","type","title","message","related_type","related_item_id","is_read","created_at","_version","_request_id"],"maxRows":20000},"rg12_comments":{"headers":["id","hospital_id","chapter_id","comment_text","needs_provincial_help","admin_response","created_at","updated_at","admin_responded_at","admin_responded_by","_version","_request_id"],"maxRows":1000},"audit_log":{"headers":["id","actor_id","action","record_type","record_id","hospital_id","request_id","changed_fields","created_at"],"maxRows":20000},"write_requests":{"headers":["request_id","actor_id","operation","payload_sha256","record_type","record_id","state","result_version","created_at","completed_at"],"maxRows":20000}};
 var WRITER_SHEET_ID="1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k";
 /* Runtime adapter. Build Writer.gs with scripts/build-mou-writer.js.
    All shared business rules are bundled from src; never edit generated code. */
@@ -502,7 +608,7 @@ function writerOutput(value){return ContentService.createTextOutput(JSON.stringi
 function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED'});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function writerRead(sheetId,module){
-  var tableNames=WriterRules.WRITE_TABLES.slice();
+  var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES);
   if(module){var def=ModuleRules.MODULES[module];writerAssert(def,'UNKNOWN_MODULE');tableNames=tableNames.concat([def.catalog,def.progress,def.history]);}
   var meta=Sheets.Spreadsheets.get(sheetId,{fields:'spreadsheetId,sheets(properties(sheetId,title,gridProperties))'});
   var tabs={},ranges=[];
@@ -538,6 +644,8 @@ function writerBatch(snapshot,plan){
     var row=existing?snapshot.rowIndices[name][record.id]:snapshot.lastRows[name];
     writerAssert(Number.isInteger(row)&&row>=1&&row<=contract.maxRows,'TABLE_LIMIT_EXCEEDED');
     if(row>=p.gridProperties.rowCount)requests.push({appendDimension:{sheetId:p.sheetId,dimension:'ROWS',length:row-p.gridProperties.rowCount+1}});
+    if(!existing)snapshot.lastRows[name]=row+1;
+    p.gridProperties.rowCount=Math.max(p.gridProperties.rowCount,row+1);
     var values=contract.headers.map(function(h){var v=record[h];writerAssert(typeof v==='string'||typeof v==='number'&&Number.isFinite(v),'INVALID_WRITE_FIELD');return {userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:v}};});
     requests.push({updateCells:{range:{sheetId:p.sheetId,startRowIndex:row,endRowIndex:row+1,startColumnIndex:0,endColumnIndex:values.length},rows:[{values:values}],fields:'userEnteredValue'}});
   }
@@ -564,12 +672,17 @@ function doPost(e){
     lock=LockService.getScriptLock();writerAssert(lock.tryLock(5000),'WRITER_BUSY');
     // Recheck after waiting: a previous unknown commit may have closed the gate.
     writerAssert(properties.getProperty('MOU_WRITES_ENABLED')==='1','WRITES_DISABLED');
-    var account=payload.operation==='registration',assessment=payload.operation==='assessment';
-    writerAssert(account||assessment||!payload.operation,'INVALID_ENVELOPE');
-    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
+    var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration';
+    writerAssert(account||assessment||management||migration||!payload.operation,'INVALID_ENVELOPE');
+    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
     var snapshot=writerRead(sheetId,assessment?command.module:null),hash=writerHash(JSON.stringify(command));
-    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
+    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
     if(plan.replayed)return writerOutput(plan.result);
+    if(command.action==='review'||command.action==='response'){
+      var targets=snapshot.tables.users.filter(u=>u.account_status==='active'&&u.role==='hospital'&&u.hospital_id===command.hospitalId&&snapshot.tables.identities.some(i=>i.legacy_user_id===u.id&&i.status==='active'));
+      if(!plan.changes){plan.changes=[{table:'mou_progress',record:plan.next,existing:!!plan.before},{table:'mou_review_history',record:plan.history,existing:false},{table:'audit_log',record:plan.audit,existing:false},{table:'write_requests',record:plan.receipt,existing:false}];}
+      targets.forEach(function(u,index){plan.changes.push({table:'notifications',existing:false,record:{id:'notification-'+command.requestId+'-'+index,user_id:u.id,hospital_id:command.hospitalId,type:'review',title:command.action==='response'?'ตอบข้อเสนอแนะ HAIT แล้ว':'มีผลตรวจประเมินใหม่',message:command.action==='response'?'ผู้ดูแลตอบคำขอความช่วยเหลือแล้ว':'กรุณาเปิดผลตรวจและข้อเสนอแนะในหน้าประเมิน',related_type:assessment?command.module:management?'hait-comment':'mou',related_item_id:command.itemId||command.chapterId,is_read:0,created_at:WriterRules.bangkokTimestamp(now),_version:1,_request_id:command.requestId}});});
+    }
     var batch=writerBatch(snapshot,plan);
     try{Sheets.Spreadsheets.batchUpdate(batch,sheetId);}
     catch(error){

@@ -8,7 +8,7 @@ function writerOutput(value){return ContentService.createTextOutput(JSON.stringi
 function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED'});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function writerRead(sheetId,module){
-  var tableNames=WriterRules.WRITE_TABLES.slice();
+  var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES);
   if(module){var def=ModuleRules.MODULES[module];writerAssert(def,'UNKNOWN_MODULE');tableNames=tableNames.concat([def.catalog,def.progress,def.history]);}
   var meta=Sheets.Spreadsheets.get(sheetId,{fields:'spreadsheetId,sheets(properties(sheetId,title,gridProperties))'});
   var tabs={},ranges=[];
@@ -44,6 +44,8 @@ function writerBatch(snapshot,plan){
     var row=existing?snapshot.rowIndices[name][record.id]:snapshot.lastRows[name];
     writerAssert(Number.isInteger(row)&&row>=1&&row<=contract.maxRows,'TABLE_LIMIT_EXCEEDED');
     if(row>=p.gridProperties.rowCount)requests.push({appendDimension:{sheetId:p.sheetId,dimension:'ROWS',length:row-p.gridProperties.rowCount+1}});
+    if(!existing)snapshot.lastRows[name]=row+1;
+    p.gridProperties.rowCount=Math.max(p.gridProperties.rowCount,row+1);
     var values=contract.headers.map(function(h){var v=record[h];writerAssert(typeof v==='string'||typeof v==='number'&&Number.isFinite(v),'INVALID_WRITE_FIELD');return {userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:v}};});
     requests.push({updateCells:{range:{sheetId:p.sheetId,startRowIndex:row,endRowIndex:row+1,startColumnIndex:0,endColumnIndex:values.length},rows:[{values:values}],fields:'userEnteredValue'}});
   }
@@ -70,12 +72,17 @@ function doPost(e){
     lock=LockService.getScriptLock();writerAssert(lock.tryLock(5000),'WRITER_BUSY');
     // Recheck after waiting: a previous unknown commit may have closed the gate.
     writerAssert(properties.getProperty('MOU_WRITES_ENABLED')==='1','WRITES_DISABLED');
-    var account=payload.operation==='registration',assessment=payload.operation==='assessment';
-    writerAssert(account||assessment||!payload.operation,'INVALID_ENVELOPE');
-    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
+    var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration';
+    writerAssert(account||assessment||management||migration||!payload.operation,'INVALID_ENVELOPE');
+    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
     var snapshot=writerRead(sheetId,assessment?command.module:null),hash=writerHash(JSON.stringify(command));
-    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
+    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
     if(plan.replayed)return writerOutput(plan.result);
+    if(command.action==='review'||command.action==='response'){
+      var targets=snapshot.tables.users.filter(u=>u.account_status==='active'&&u.role==='hospital'&&u.hospital_id===command.hospitalId&&snapshot.tables.identities.some(i=>i.legacy_user_id===u.id&&i.status==='active'));
+      if(!plan.changes){plan.changes=[{table:'mou_progress',record:plan.next,existing:!!plan.before},{table:'mou_review_history',record:plan.history,existing:false},{table:'audit_log',record:plan.audit,existing:false},{table:'write_requests',record:plan.receipt,existing:false}];}
+      targets.forEach(function(u,index){plan.changes.push({table:'notifications',existing:false,record:{id:'notification-'+command.requestId+'-'+index,user_id:u.id,hospital_id:command.hospitalId,type:'review',title:command.action==='response'?'ตอบข้อเสนอแนะ HAIT แล้ว':'มีผลตรวจประเมินใหม่',message:command.action==='response'?'ผู้ดูแลตอบคำขอความช่วยเหลือแล้ว':'กรุณาเปิดผลตรวจและข้อเสนอแนะในหน้าประเมิน',related_type:assessment?command.module:management?'hait-comment':'mou',related_item_id:command.itemId||command.chapterId,is_read:0,created_at:WriterRules.bangkokTimestamp(now),_version:1,_request_id:command.requestId}});});
+    }
     var batch=writerBatch(snapshot,plan);
     try{Sheets.Spreadsheets.batchUpdate(batch,sheetId);}
     catch(error){

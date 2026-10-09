@@ -72,7 +72,8 @@ test('writer client signs exact command and follows only safe result redirect wi
 function gasFixture(){
  const data=reviewerFixture(),headers={...Object.fromEntries(Object.entries(schema).map(([n,v])=>[n,v.headers])),...WRITE_LOG_HEADERS};
  const grids={},ids={},props=new Map([['MOU_WRITER_SECRET','a'.repeat(64)],['MOU_SHEET_ID','1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k'],['MOU_WRITES_ENABLED','1']]);
- WRITE_TABLES.forEach((n,i)=>{ids[n]=i+1;grids[n]=[headers[n],...data[n].map(r=>headers[n].map(h=>r[h]??''))];});
+ const runtimeTables=[...WRITE_TABLES,'announcements','notifications','rg12_comments','rg12_chapters'];
+ runtimeTables.forEach((n,i)=>{ids[n]=i+1;grids[n]=[headers[n],...(data[n]||[]).map(r=>headers[n].map(h=>r[h]??''))];});
  let held=false,blocked=false,batches=0,failCommit=false;
  class FixtureDate extends Date {
   constructor(...args){super(...(args.length?args:[now.getTime()]));}
@@ -84,7 +85,7 @@ function gasFixture(){
   ContentService:{MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>text})},
   Utilities:{Charset:{UTF_8:'utf8'},DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(alg,s)=>Array.from(createHash('sha256').update(s).digest()),computeHmacSha256Signature:(s,k)=>Array.from(createHmac('sha256',k).update(s).digest())},
   Sheets:{Spreadsheets:{
-    get:()=>({sheets:WRITE_TABLES.map(n=>({properties:{sheetId:ids[n],title:n,gridProperties:{rowCount:Math.max(100,grids[n].length),columnCount:26}}}))}),
+    get:()=>({sheets:runtimeTables.map(n=>({properties:{sheetId:ids[n],title:n,gridProperties:{rowCount:Math.max(100,grids[n].length),columnCount:26}}}))}),
     Values:{batchGet:(id,opts)=>({valueRanges:opts.ranges.map(range=>({values:structuredClone(grids[range.split("'")[1]])}))})},
     batchUpdate:body=>{assert.equal(held,true);batches++;if(failCommit)throw Error('UPSTREAM-SECRET');
       for(const req of body.requests){if(!req.updateCells)continue;const u=req.updateCells,n=Object.keys(ids).find(n=>ids[n]===u.range.sheetId);
