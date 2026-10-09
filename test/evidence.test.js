@@ -6,6 +6,10 @@ import {planEvidence} from '../src/evidence-rules.js';
 import {planMouWrite} from '../src/mou-write-rules.js';
 import {downloadEvidence,uploadContext} from '../src/evidence-http.js';
 import {evidenceDrive,validUploadLocation} from '../src/evidence-drive.js';
+import {createServer} from 'node:http';
+import {createApp} from '../src/app.js';
+import {readConfig} from '../src/config.js';
+import {sessionCodec} from '../src/session.js';
 const admin={provider:'google',subject:'admin-sub'},hospital={provider:'google',subject:'hospital-sub'},sha='a'.repeat(64);
 const fixture=()=>({...writeFixture(),files:[]});
 const command=()=>({requestId:randomUUID(),action:'reserve',saveRequestId:randomUUID(),module:'mou',hospitalId:'09625',itemId:'1',fiscalYear:2569,progressVersion:1,filename:'หลักฐาน.pdf',size:10,sha256:sha,driveId:'privateDriveFileID123'});
@@ -40,4 +44,15 @@ test('Drive chunks cannot target arbitrary URLs and downloads reject sharing or 
  let shared=false;const client={request:async o=>o.params?.alt?{data:bytes}:{data:{mimeType:'application/pdf',shared,trashed:false,size:bytes.length,parents:[config.evidenceFolderId],owners:[{emailAddress:config.ownerEmail}],permissions:[{role:'owner',emailAddress:config.ownerEmail}],appProperties:{portalFileId:file.id}}}};
  const drive=evidenceDrive(config,client);assert.equal((await drive.download(file)).toString(),bytes.toString());shared=true;await assert.rejects(drive.download(file),{code:'EVIDENCE_NOT_PRIVATE'});shared=false;await assert.rejects(drive.download({...file,sha256:sha}),{code:'EVIDENCE_CHECKSUM_MISMATCH'});
  for(const u of ['http://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=x','https://evil.example/upload/drive/v3/files?uploadType=resumable&upload_id=x']){assert.equal(validUploadLocation(u),false);await assert.rejects(drive.chunk(u,bytes,0,bytes.length),{code:'INVALID_UPLOAD_LOCATION'});}
+});
+test('MOU HTTP page exposes upload only with evidence gate; file endpoints require fresh identity, origin and CSRF',async t=>{
+ const data=fixture(),config=readConfig({SESSION_KEY_HEX:'a'.repeat(64),GOOGLE_STORAGE_CLIENT_ID:'fake',GOOGLE_STORAGE_CLIENT_SECRET:'fake',GOOGLE_STORAGE_REFRESH_TOKEN:'fake',MOU_WRITES_ENABLED:'1',MOU_WRITER_URL:'https://script.google.com/macros/s/abcdefghijklmnopqrstuvwxyz/exec',MOU_WRITER_SECRET:'b'.repeat(64),EVIDENCE_WRITES_ENABLED:'1',GOOGLE_EVIDENCE_REFRESH_TOKEN:'fake'}),codec=sessionCodec(config);
+ const store={table:async n=>structuredClone(data[n]||[]),directory:async()=>[{id:'09625',name:'หน่วยทดสอบ'}]},server=createServer(createApp(config,{codec,store,drive:{},writer:{}}));
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));config.origin='http://127.0.0.1:'+server.address().port;t.after(()=>{server.closeAllConnections();server.close();});
+ const session=await codec.issue('session',{...admin,csrf:'token'},900),cookie=session.cookie.split(';')[0];
+ const url=config.origin+'/mou/action?hospital_id=09625&year=2569&item_id=1&action=save';const page=await fetch(url,{headers:{cookie}});assert.equal(page.status,200);assert.ok((await page.text()).includes('data-evidence-file'));
+ config.evidence.enabled=false;assert.ok(!(await (await fetch(url,{headers:{cookie}})).text()).includes('data-evidence-file'));config.evidence.enabled=true;
+ const req=(headers,csrf='token')=>fetch(config.origin+'/api/files/start',{method:'POST',headers:{'Content-Type':'application/json',cookie,origin:config.origin,...headers},body:JSON.stringify({csrf})});
+ assert.equal((await req({cookie:''})).status,401);assert.equal((await req({origin:'https://outside.example'})).status,403);assert.equal((await req({},'other')).status,403);
+ data.users[1].account_status='disabled';assert.equal((await req({})).status,403);
 });

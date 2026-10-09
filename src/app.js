@@ -226,7 +226,7 @@ export function createApp(config, dependencies = {}) {
         else fail(access.user.role==='admin'||!item.lock,'ASSESSMENT_LOCKED',403);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
-        return res.end(mouActionPage(model,item,{csrf:identity.csrf,action,enabled:writerConfigured(config),preview:dependencies.preview===true}));
+        return res.end(mouActionPage(model,item,{csrf:identity.csrf,action,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)}));
       }
       if (['/mou/history','/api/admin/mou-history'].includes(url.pathname)) {
         if (!identity && url.pathname==='/mou/history') return redirect('/');
