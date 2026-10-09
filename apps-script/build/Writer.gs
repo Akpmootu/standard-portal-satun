@@ -226,7 +226,7 @@ async function loadMouWorkspace(store,access,query={},now=new Date()) {
       fail(!records.has(r.item_id),'DUPLICATE_MOU_PROGRESS');
       fail(Object.hasOwn(STATUS_LABELS,r.status),'INVALID_MOU_STATUS');
       const review=r.admin_status||'pending';fail(Object.hasOwn(REVIEW_LABELS,review),'INVALID_REVIEW_STATUS');
-      records.set(r.item_id,{id:r.id,version:r._version,status:r.status,review,detail:text(r.assessment_detail),link:safeEvidenceUrl(r.evidence_link),invalidLink:Boolean(r.evidence_link&&!safeEvidenceUrl(r.evidence_link)),comment:text(r.admin_comment),updatedAt:text(r.updated_at,100),hasFile:Boolean(r.evidence_file)});
+      records.set(r.item_id,{id:r.id,version:r._version,status:r.status,review,detail:text(r.assessment_detail),link:safeEvidenceUrl(r.evidence_link),invalidLink:Boolean(r.evidence_link&&!safeEvidenceUrl(r.evidence_link)),comment:text(r.admin_comment),updatedAt:text(r.updated_at,100),hasFile:Boolean(r.evidence_file),fileId:r.evidence_file});
     }
   }
   const displayed=visible.map(i=>({...i,record:records.get(i.id)||null,lock:legacyLock(i,unit?.group,year,catalog.settings,currentYear)}));
@@ -260,7 +260,7 @@ function validWriteLink(v){
 function normalizeMouCommand(input){
   fail(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_WRITE_COMMAND',400);
   const common=['requestId','action','hospitalId','itemId','fiscalYear','expectedVersion'];
-  const extra=input.action==='save'?['status','detail','evidenceLink']:input.action==='review'?['reviewStatus','comment']:[];
+  const extra=input.action==='save'?['status','detail','evidenceLink',...(Object.hasOwn(input,'evidenceFileId')?['evidenceFileId']:[])]:input.action==='review'?['reviewStatus','comment']:[];
   fail(extra.length&&Object.keys(input).length===common.length+extra.length&&Object.keys(input).every(k=>[...common,...extra].includes(k)),'INVALID_WRITE_COMMAND',400);
   fail(typeof input.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(input.requestId),'INVALID_REQUEST_ID',400);
   fail(typeof input.hospitalId==='string'&&MOU_HOSPITAL_IDS.includes(input.hospitalId),'HOSPITAL_OUTSIDE_PROJECT',403);
@@ -272,11 +272,16 @@ function normalizeMouCommand(input){
     fail(['none','completed','in_progress','cannot_do'].includes(input.status),'INVALID_MOU_STATUS',400);
     c.status=input.status;c.detail=field(input.detail,10000);c.evidenceLink=field(input.evidenceLink,2048);
     fail(!c.evidenceLink||validWriteLink(c.evidenceLink),'INVALID_EVIDENCE_LINK',400);
+    if(Object.hasOwn(input,'evidenceFileId')){fail(typeof input.evidenceFileId==='string'&&/^file-[a-f0-9-]{36}$/.test(input.evidenceFileId),'INVALID_FILE_ID',400);c.evidenceFileId=input.evidenceFileId;}
   }else{
     fail(['approved','rejected'].includes(input.reviewStatus),'INVALID_REVIEW_STATUS',400);
     c.reviewStatus=input.reviewStatus;c.comment=field(input.comment,10000,input.reviewStatus==='rejected');
   }
   return c;
+}
+function attachedEvidence(tables,actor,fileId,recordId,module,hospitalId,requireCreator=true){
+ const matches=(tables.files||[]).filter(f=>f.id===fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const f=matches[0];
+ fail(f.upload_state==='complete'&&f.mime_type==='application/pdf'&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
 }
 function writeActor(identity,tables){
   fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
@@ -324,12 +329,14 @@ function planMouWrite(tables,identity,input,payloadSha256,now=new Date()){
   let history=null;
   if(c.action==='save'){
     const link=c.evidenceLink||before?.evidence_link||'';
+    const file=c.evidenceFileId?attachedEvidence(tables,actor,c.evidenceFileId,id,'mou',c.hospitalId):before?.evidence_type==='file'?attachedEvidence(tables,actor,before.evidence_file,id,'mou',c.hospitalId,false):null;
     if(c.status!=='none'){
       fail(c.detail.length>0,'ASSESSMENT_DETAIL_REQUIRED',400);
-      fail(validWriteLink(link),'EVIDENCE_REQUIRED',400);
+      fail(validWriteLink(link)||file,'EVIDENCE_REQUIRED',400);
     }
     next={...next,status:c.status,assessment_detail:c.detail,updated_at:timestamp,updated_by:actor.id};
     if(c.evidenceLink){next.evidence_type='link';next.evidence_link=c.evidenceLink;}
+    if(c.evidenceFileId)Object.assign(next,{evidence_type:'file',evidence_file:c.evidenceFileId,evidence_link:''});
     if(actor.role!=='admin')Object.assign(next,{admin_status:'pending',admin_comment:'',admin_reviewed_at:'',admin_reviewed_by:''});
   }else{
     fail(before,'PROGRESS_NOT_FOUND',404);
@@ -343,7 +350,7 @@ function planMouWrite(tables,identity,input,payloadSha256,now=new Date()){
   return {replayed:false,before,next,history,audit,receipt,result:{ok:true,requestId:c.requestId,recordId:id,version,replayed:false}};
 }
 
-return {WRITE_TABLES,WRITE_LOG_HEADERS,validWriteLink,normalizeMouCommand,writeActor,bangkokTimestamp,planMouWrite};
+return {WRITE_TABLES,WRITE_LOG_HEADERS,validWriteLink,normalizeMouCommand,attachedEvidence,writeActor,bangkokTimestamp,planMouWrite};
 })();
 var RegistrationRules=(function(){
 const {fail} = WriterErrors;
@@ -424,7 +431,7 @@ return {normalizeRegistrationCommand,planRegistration};
 })();
 var ModuleRules=(function(){
 const {fail} = WriterErrors;
-const {writeActor,validWriteLink,bangkokTimestamp} = WriterRules;
+const {writeActor,validWriteLink,bangkokTimestamp,attachedEvidence} = WriterRules;
 const {normalizeAgencies} = WriterAgencies;
 const {reviewProfile} = WriterReviewAccess;
 const {MOU_HOSPITAL_IDS} = WriterReference;
@@ -438,7 +445,7 @@ function requireModuleUnit(tables,actor,module,hospitalId,review=false){
 function normalizeModuleCommand(c){
  fail(c&&typeof c==='object'&&!Array.isArray(c)&&Object.hasOwn(MODULES,c.module),'INVALID_WRITE_COMMAND',400);
  const common=['requestId','module','action','hospitalId','itemId','expectedVersion'];
- const extra=c.action==='save'?['status','responsiblePerson','detail','evidenceLink']:c.action==='review'?['reviewStatus','comment']:[];
+ const extra=c.action==='save'?['status','responsiblePerson','detail','evidenceLink',...(Object.hasOwn(c,'evidenceFileId')?['evidenceFileId']:[])]:c.action==='review'?['reviewStatus','comment']:[];
  fail(extra.length&&Object.keys(c).length===common.length+extra.length&&Object.keys(c).every(k=>[...common,...extra].includes(k)),'INVALID_WRITE_COMMAND',400);
  fail(typeof c.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(c.requestId),'INVALID_REQUEST_ID',400);
  fail(MOU_HOSPITAL_IDS.includes(c.hospitalId)&&typeof c.itemId==='string'&&/^[1-9]\d{0,15}$/.test(c.itemId),'INVALID_ITEM_ID',400);
@@ -449,6 +456,7 @@ function normalizeModuleCommand(c){
   fail(['none','completed','in_progress','cannot_do'].includes(c.status),'INVALID_MODULE_STATUS',400);
   Object.assign(out,{status:c.status,responsiblePerson:text(c.responsiblePerson,300),detail:text(c.detail,10000),evidenceLink:text(c.evidenceLink,2048)});
   fail(!out.evidenceLink||validWriteLink(out.evidenceLink),'INVALID_EVIDENCE_LINK',400);
+  if(Object.hasOwn(c,'evidenceFileId')){fail(typeof c.evidenceFileId==='string'&&/^file-[a-f0-9-]{36}$/.test(c.evidenceFileId),'INVALID_FILE_ID',400);out.evidenceFileId=c.evidenceFileId;}
  }else{
   fail(['approved','rejected'].includes(c.reviewStatus),'INVALID_REVIEW_STATUS',400);
   out.reviewStatus=c.reviewStatus;out.comment=text(c.comment,10000);
@@ -471,10 +479,12 @@ function planModuleWrite(tables,identity,input,sha,now=new Date()){
  const changes=[];
  if(c.action==='save'){
   const link=c.evidenceLink||before?.evidence_link||'';
-  if(c.status!=='none'){fail(c.responsiblePerson,'RESPONSIBLE_PERSON_REQUIRED',400);fail(c.detail,'ASSESSMENT_DETAIL_REQUIRED',400);fail(validWriteLink(link)||before?.evidence_type==='file'&&Boolean(before.evidence_file),'EVIDENCE_REQUIRED',400);}
+  const file=c.evidenceFileId?attachedEvidence(tables,actor,c.evidenceFileId,id,c.module,c.hospitalId):before?.evidence_type==='file'?attachedEvidence(tables,actor,before.evidence_file,id,c.module,c.hospitalId,false):null;
+  if(c.status!=='none'){fail(c.responsiblePerson,'RESPONSIBLE_PERSON_REQUIRED',400);fail(c.detail,'ASSESSMENT_DETAIL_REQUIRED',400);fail(validWriteLink(link)||file,'EVIDENCE_REQUIRED',400);}
   Object.assign(next,{status:c.status,responsible_person:c.responsiblePerson,assessment_detail:c.detail,updated_at:time,updated_by:actor.id});
   if(c.module==='hait')next.is_completed=c.status==='completed'?1:0;
   if(c.evidenceLink)Object.assign(next,{evidence_type:'link',evidence_link:c.evidenceLink});
+  if(c.evidenceFileId)Object.assign(next,{evidence_type:'file',evidence_file:c.evidenceFileId,evidence_link:''});
   if(actor.role!=='admin')Object.assign(next,{admin_status:'pending',admin_comment:'',admin_reviewed_at:'',admin_reviewed_by:''});
  }else{
   fail(before,'PROGRESS_NOT_FOUND',404);const reviewer=reviewProfile(tables.reviewer_profiles,actor.id);
@@ -596,6 +606,54 @@ function planMigration(tables,identity,input,sha,now=new Date()){
 
 return {MIGRATION_HEADERS,normalizeMigrationCommand,planMigration};
 })();
+var EvidenceRules=(function(){
+const {fail} = WriterErrors;
+const {writeActor,planMouWrite,bangkokTimestamp} = WriterRules;
+const {planModuleWrite,MODULES} = ModuleRules;
+const MAX_EVIDENCE_BYTES=10*1024*1024;
+function normalizeEvidenceCommand(c){
+ fail(c&&typeof c==='object'&&!Array.isArray(c),'INVALID_EVIDENCE_COMMAND',400);
+ const fields=c.action==='reserve'?['saveRequestId','module','hospitalId','itemId','fiscalYear','progressVersion','filename','size','sha256','driveId']:c.action==='verify'?['fileId']:[];
+ fail(fields.length&&Object.keys(c).length===fields.length+2&&Object.keys(c).every(k=>['requestId','action',...fields].includes(k)),'INVALID_EVIDENCE_COMMAND',400);
+ const uuid=s=>typeof s==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(s);
+ fail(uuid(c.requestId),'INVALID_REQUEST_ID',400);
+ if(c.action==='reserve'){
+  fail(uuid(c.saveRequestId)&&['mou','ctam','hait'].includes(c.module)&&typeof c.hospitalId==='string'&&typeof c.itemId==='string'&&Number.isSafeInteger(c.progressVersion)&&c.progressVersion>=0,'INVALID_EVIDENCE_COMMAND',400);
+  fail(c.module==='mou'?Number.isInteger(c.fiscalYear)&&c.fiscalYear>=2500&&c.fiscalYear<=2700:c.fiscalYear===0,'INVALID_FISCAL_YEAR',400);
+  fail(typeof c.filename==='string'&&c.filename.length>0&&c.filename.length<=200&&!/[\\/\u0000-\u001f\u007f]/.test(c.filename)&&/\.pdf$/i.test(c.filename),'PDF_REQUIRED',400);
+  fail(Number.isSafeInteger(c.size)&&c.size>=5&&c.size<=MAX_EVIDENCE_BYTES,'INVALID_FILE_SIZE',400);
+  fail(typeof c.sha256==='string'&&/^[a-f0-9]{64}$/.test(c.sha256)&&typeof c.driveId==='string'&&/^[A-Za-z0-9_-]{10,200}$/.test(c.driveId),'INVALID_EVIDENCE_COMMAND',400);
+ }else fail(typeof c.fileId==='string'&&/^file-[a-f0-9-]{36}$/.test(c.fileId),'INVALID_EVIDENCE_COMMAND',400);
+ return c;
+}
+function evidenceTarget(tables,identity,c,sha,now=new Date()){
+ const common={requestId:c.saveRequestId,action:'save',hospitalId:c.hospitalId,itemId:c.itemId,expectedVersion:c.progressVersion,status:'none',detail:'',evidenceLink:''};
+ const proposal=c.module==='mou'?planMouWrite(tables,identity,{...common,fiscalYear:c.fiscalYear},sha,now):planModuleWrite(tables,identity,{...common,module:c.module,responsiblePerson:''},sha,now);
+ fail(!proposal.replayed,'SAVE_REQUEST_ALREADY_COMMITTED',409);
+ return c.module==='mou'?proposal.next:proposal.changes.find(x=>x.table===MODULES[c.module].progress).record;
+}
+function planEvidence(tables,identity,input,sha,now=new Date()){
+ const c=normalizeEvidenceCommand(input),actor=writeActor(identity,tables),time=bangkokTimestamp(now);
+ fail(actor.role!=='reviewer','REVIEWER_SAVE_DENIED',403);fail(typeof sha==='string'&&/^[a-f0-9]{64}$/.test(sha),'INVALID_PAYLOAD_HASH',400);
+ const receipt=tables.write_requests.filter(r=>r.request_id===c.requestId);fail(receipt.length<=1,'DUPLICATE_REQUEST_RECORD');
+ if(receipt.length){const r=receipt[0];fail(r.actor_id===actor.id&&r.record_type==='evidence'&&r.operation===c.action&&r.payload_sha256===sha&&r.state==='committed','REQUEST_ID_REUSED',409);return {replayed:true,result:{ok:true,requestId:c.requestId,recordId:r.record_id,version:r.result_version,replayed:true}};}
+ let next;
+ if(c.action==='reserve'){
+  const target=evidenceTarget(tables,identity,c,sha,now),id='file-'+c.requestId;
+  fail(!tables.files.some(f=>f.id===id||f.drive_file_id===c.driveId),'FILE_ALREADY_EXISTS',409);
+  fail(tables.files.filter(f=>f.created_by===actor.id&&f.upload_state==='uploading').length<20,'UPLOAD_LIMIT_REACHED',429);
+  next={id,drive_file_id:c.driveId,hospital_id:c.hospitalId,record_type:c.module,record_id:target.id,original_filename:c.filename,mime_type:'application/pdf',size_bytes:c.size,sha256:c.sha256,upload_state:'uploading',created_by:actor.id,created_at:time,_version:1};
+ }else{
+  const matches=tables.files.filter(f=>f.id===c.fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const old=matches[0];
+  fail(old.created_by===actor.id&&(actor.role==='admin'||old.hospital_id===actor.hospital_id),'FILE_ACCESS_DENIED',403);
+  fail(old.upload_state==='uploading'&&old._version===1,'FILE_STATE_CONFLICT',409);next={...old,upload_state:'complete',_version:2};
+ }
+ const changes=[{table:'files',existing:c.action==='verify',record:next},{table:'audit_log',existing:false,record:{id:'evidence-audit-'+c.requestId,actor_id:actor.id,action:c.action,record_type:'files',record_id:next.id,hospital_id:next.hospital_id,request_id:c.requestId,changed_fields:JSON.stringify(['upload_state']),created_at:time}},{table:'write_requests',existing:false,record:{request_id:c.requestId,actor_id:actor.id,operation:c.action,payload_sha256:sha,record_type:'evidence',record_id:next.id,state:'committed',result_version:next._version,created_at:time,completed_at:time}}];
+ return {changes,replayed:false,result:{ok:true,requestId:c.requestId,recordId:next.id,version:next._version,replayed:false}};
+}
+
+return {MAX_EVIDENCE_BYTES,normalizeEvidenceCommand,evidenceTarget,planEvidence};
+})();
 var WRITER_SCHEMA={"ctam_items":{"headers":["id","item_number","title","title_en","description","sort_order","created_at","_version","_request_id"],"maxRows":500},"rg12_chapters":{"headers":["id","chapter_number","title","sort_order","created_at","_version","_request_id"],"maxRows":100},"rg12_sub_items":{"headers":["id","chapter_id","item_text","sort_order","_version","_request_id"],"maxRows":500},"ctam_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"hait_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"mou_review_history":{"headers":["id","progress_id","admin_status","admin_comment","admin_reviewed_by","created_at","_version","_request_id"],"maxRows":5000},"mou_agencies":{"headers":["id","user_group","classification_source","status","_version","_request_id"],"maxRows":100},"mou_categories":{"headers":["id","category_number","title","sort_order","_version","_request_id"],"maxRows":100},"mou_items":{"headers":["id","category_id","item_number","title","target_group","period","sort_order","_version","_request_id"],"maxRows":500},"mou_settings":{"headers":["id","setting_key","setting_value","label","updated_at","updated_by","_version","_request_id"],"maxRows":100},"users":{"headers":["id","username","role","user_group","last_login_at","hospital_id","created_at","account_status","_version","_request_id"],"maxRows":1000},"identities":{"headers":["id","provider","provider_subject","legacy_user_id","email","email_verified","status","approved_by","approved_at","created_at","_version"],"maxRows":1000},"mou_progress":{"headers":["id","hospital_id","item_id","fiscal_year","status","assessment_detail","evidence_type","evidence_file","evidence_link","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","updated_at","updated_by","_version","_request_id"],"maxRows":5000},"ctam_progress":{"headers":["id","hospital_id","item_id","responsible_person","assessment_detail","evidence_type","evidence_file","evidence_link","updated_at","updated_by","status","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","_version","_request_id"],"maxRows":5000},"rg12_progress":{"headers":["id","hospital_id","sub_item_id","is_completed","status","responsible_person","assessment_detail","evidence_type","evidence_file","evidence_link","admin_status","admin_comment","admin_reviewed_at","admin_reviewed_by","updated_at","updated_by","_version","_request_id"],"maxRows":5000},"files":{"headers":["id","drive_file_id","hospital_id","record_type","record_id","original_filename","mime_type","size_bytes","sha256","upload_state","created_by","created_at","_version"],"maxRows":5000},"reviewer_profiles":{"headers":["id","user_id","display_name","hospital_ids","fiscal_years","status","approved_by","approved_at","_version","_request_id"],"maxRows":1000},"registration_requests":{"headers":["id","provider","provider_subject","email","display_name","job_title","organization","phone","requested_at","status","decided_at","decided_by","assigned_role","hospital_id","hospital_ids","fiscal_years","decision_note","_version","_request_id"],"maxRows":1000},"announcements":{"headers":["id","title","message","link_url","link_text","is_active","created_at","updated_at","_version","_request_id"],"maxRows":1000},"notifications":{"headers":["id","user_id","hospital_id","type","title","message","related_type","related_item_id","is_read","created_at","_version","_request_id"],"maxRows":20000},"rg12_comments":{"headers":["id","hospital_id","chapter_id","comment_text","needs_provincial_help","admin_response","created_at","updated_at","admin_responded_at","admin_responded_by","_version","_request_id"],"maxRows":1000},"audit_log":{"headers":["id","actor_id","action","record_type","record_id","hospital_id","request_id","changed_fields","created_at"],"maxRows":20000},"write_requests":{"headers":["request_id","actor_id","operation","payload_sha256","record_type","record_id","state","result_version","created_at","completed_at"],"maxRows":20000}};
 var WRITER_SHEET_ID="1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k";
 /* Runtime adapter. Build Writer.gs with scripts/build-mou-writer.js.
@@ -608,7 +666,7 @@ function writerOutput(value){return ContentService.createTextOutput(JSON.stringi
 function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED'});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function writerRead(sheetId,module){
-  var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES);
+  var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES,['files']);
   if(module){var def=ModuleRules.MODULES[module];writerAssert(def,'UNKNOWN_MODULE');tableNames=tableNames.concat([def.catalog,def.progress,def.history]);}
   var meta=Sheets.Spreadsheets.get(sheetId,{fields:'spreadsheetId,sheets(properties(sheetId,title,gridProperties))'});
   var tabs={},ranges=[];
@@ -672,11 +730,11 @@ function doPost(e){
     lock=LockService.getScriptLock();writerAssert(lock.tryLock(5000),'WRITER_BUSY');
     // Recheck after waiting: a previous unknown commit may have closed the gate.
     writerAssert(properties.getProperty('MOU_WRITES_ENABLED')==='1','WRITES_DISABLED');
-    var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration';
-    writerAssert(account||assessment||management||migration||!payload.operation,'INVALID_ENVELOPE');
-    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
-    var snapshot=writerRead(sheetId,assessment?command.module:null),hash=writerHash(JSON.stringify(command));
-    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
+    var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration',evidence=payload.operation==='evidence';
+    writerAssert(account||assessment||management||migration||evidence||!payload.operation,'INVALID_ENVELOPE');
+    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):evidence?EvidenceRules.normalizeEvidenceCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
+    var snapshot=writerRead(sheetId,assessment?command.module:evidence&&command.action==='reserve'&&command.module!=='mou'?command.module:null),hash=writerHash(JSON.stringify(command));
+    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):evidence?EvidenceRules.planEvidence(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
     if(plan.replayed)return writerOutput(plan.result);
     if(command.action==='review'||command.action==='response'){
       var targets=snapshot.tables.users.filter(u=>u.account_status==='active'&&u.role==='hospital'&&u.hospital_id===command.hospitalId&&snapshot.tables.identities.some(i=>i.legacy_user_id===u.id&&i.status==='active'));

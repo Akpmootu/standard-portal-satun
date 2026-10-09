@@ -72,7 +72,7 @@ test('writer client signs exact command and follows only safe result redirect wi
 function gasFixture(){
  const data=reviewerFixture(),headers={...Object.fromEntries(Object.entries(schema).map(([n,v])=>[n,v.headers])),...WRITE_LOG_HEADERS};
  const grids={},ids={},props=new Map([['MOU_WRITER_SECRET','a'.repeat(64)],['MOU_SHEET_ID','1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k'],['MOU_WRITES_ENABLED','1']]);
- const runtimeTables=[...WRITE_TABLES,'announcements','notifications','rg12_comments','rg12_chapters'];
+ const runtimeTables=[...WRITE_TABLES,'announcements','notifications','rg12_comments','rg12_chapters','files'];
  runtimeTables.forEach((n,i)=>{ids[n]=i+1;grids[n]=[headers[n],...(data[n]||[]).map(r=>headers[n].map(h=>r[h]??''))];});
  let held=false,blocked=false,batches=0,failCommit=false;
  class FixtureDate extends Date {

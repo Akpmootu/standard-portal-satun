@@ -1,5 +1,5 @@
 import {fail} from './errors.js';
-import {writeActor,validWriteLink,bangkokTimestamp} from './mou-write-rules.js';
+import {writeActor,validWriteLink,bangkokTimestamp,attachedEvidence} from './mou-write-rules.js';
 import {normalizeAgencies} from './mou-agencies.js';
 import {reviewProfile} from './review-access.js';
 import {MOU_HOSPITAL_IDS} from './mou-reference.js';
@@ -13,7 +13,7 @@ export function requireModuleUnit(tables,actor,module,hospitalId,review=false){
 export function normalizeModuleCommand(c){
  fail(c&&typeof c==='object'&&!Array.isArray(c)&&Object.hasOwn(MODULES,c.module),'INVALID_WRITE_COMMAND',400);
  const common=['requestId','module','action','hospitalId','itemId','expectedVersion'];
- const extra=c.action==='save'?['status','responsiblePerson','detail','evidenceLink']:c.action==='review'?['reviewStatus','comment']:[];
+ const extra=c.action==='save'?['status','responsiblePerson','detail','evidenceLink',...(Object.hasOwn(c,'evidenceFileId')?['evidenceFileId']:[])]:c.action==='review'?['reviewStatus','comment']:[];
  fail(extra.length&&Object.keys(c).length===common.length+extra.length&&Object.keys(c).every(k=>[...common,...extra].includes(k)),'INVALID_WRITE_COMMAND',400);
  fail(typeof c.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(c.requestId),'INVALID_REQUEST_ID',400);
  fail(MOU_HOSPITAL_IDS.includes(c.hospitalId)&&typeof c.itemId==='string'&&/^[1-9]\d{0,15}$/.test(c.itemId),'INVALID_ITEM_ID',400);
@@ -24,6 +24,7 @@ export function normalizeModuleCommand(c){
   fail(['none','completed','in_progress','cannot_do'].includes(c.status),'INVALID_MODULE_STATUS',400);
   Object.assign(out,{status:c.status,responsiblePerson:text(c.responsiblePerson,300),detail:text(c.detail,10000),evidenceLink:text(c.evidenceLink,2048)});
   fail(!out.evidenceLink||validWriteLink(out.evidenceLink),'INVALID_EVIDENCE_LINK',400);
+  if(Object.hasOwn(c,'evidenceFileId')){fail(typeof c.evidenceFileId==='string'&&/^file-[a-f0-9-]{36}$/.test(c.evidenceFileId),'INVALID_FILE_ID',400);out.evidenceFileId=c.evidenceFileId;}
  }else{
   fail(['approved','rejected'].includes(c.reviewStatus),'INVALID_REVIEW_STATUS',400);
   out.reviewStatus=c.reviewStatus;out.comment=text(c.comment,10000);
@@ -46,10 +47,12 @@ export function planModuleWrite(tables,identity,input,sha,now=new Date()){
  const changes=[];
  if(c.action==='save'){
   const link=c.evidenceLink||before?.evidence_link||'';
-  if(c.status!=='none'){fail(c.responsiblePerson,'RESPONSIBLE_PERSON_REQUIRED',400);fail(c.detail,'ASSESSMENT_DETAIL_REQUIRED',400);fail(validWriteLink(link)||before?.evidence_type==='file'&&Boolean(before.evidence_file),'EVIDENCE_REQUIRED',400);}
+  const file=c.evidenceFileId?attachedEvidence(tables,actor,c.evidenceFileId,id,c.module,c.hospitalId):before?.evidence_type==='file'?attachedEvidence(tables,actor,before.evidence_file,id,c.module,c.hospitalId,false):null;
+  if(c.status!=='none'){fail(c.responsiblePerson,'RESPONSIBLE_PERSON_REQUIRED',400);fail(c.detail,'ASSESSMENT_DETAIL_REQUIRED',400);fail(validWriteLink(link)||file,'EVIDENCE_REQUIRED',400);}
   Object.assign(next,{status:c.status,responsible_person:c.responsiblePerson,assessment_detail:c.detail,updated_at:time,updated_by:actor.id});
   if(c.module==='hait')next.is_completed=c.status==='completed'?1:0;
   if(c.evidenceLink)Object.assign(next,{evidence_type:'link',evidence_link:c.evidenceLink});
+  if(c.evidenceFileId)Object.assign(next,{evidence_type:'file',evidence_file:c.evidenceFileId,evidence_link:''});
   if(actor.role!=='admin')Object.assign(next,{admin_status:'pending',admin_comment:'',admin_reviewed_at:'',admin_reviewed_by:''});
  }else{
   fail(before,'PROGRESS_NOT_FOUND',404);const reviewer=reviewProfile(tables.reviewer_profiles,actor.id);

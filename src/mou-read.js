@@ -93,7 +93,7 @@ export async function loadMouWorkspace(store,access,query={},now=new Date()) {
       fail(!records.has(r.item_id),'DUPLICATE_MOU_PROGRESS');
       fail(Object.hasOwn(STATUS_LABELS,r.status),'INVALID_MOU_STATUS');
       const review=r.admin_status||'pending';fail(Object.hasOwn(REVIEW_LABELS,review),'INVALID_REVIEW_STATUS');
-      records.set(r.item_id,{id:r.id,version:r._version,status:r.status,review,detail:text(r.assessment_detail),link:safeEvidenceUrl(r.evidence_link),invalidLink:Boolean(r.evidence_link&&!safeEvidenceUrl(r.evidence_link)),comment:text(r.admin_comment),updatedAt:text(r.updated_at,100),hasFile:Boolean(r.evidence_file)});
+      records.set(r.item_id,{id:r.id,version:r._version,status:r.status,review,detail:text(r.assessment_detail),link:safeEvidenceUrl(r.evidence_link),invalidLink:Boolean(r.evidence_link&&!safeEvidenceUrl(r.evidence_link)),comment:text(r.admin_comment),updatedAt:text(r.updated_at,100),hasFile:Boolean(r.evidence_file),fileId:r.evidence_file});
     }
   }
   const displayed=visible.map(i=>({...i,record:records.get(i.id)||null,lock:legacyLock(i,unit?.group,year,catalog.settings,currentYear)}));

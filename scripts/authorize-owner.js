@@ -4,12 +4,14 @@ import { readConfig, loadLocalEnvironment } from '../src/config.js';
 import { randomToken, equalToken } from '../src/session.js';
 import { validateGoogleClaims } from '../src/google-login.js';
 import { STORAGE_SCOPES } from '../src/google-store.js';
+import { EVIDENCE_SCOPES } from '../src/evidence-drive.js';
 import { privateDirectory, saveNewPrivateJson } from './private-files.js';
 import { ownerAuthDiagnostic, ownerAuthResult } from './owner-auth-errors.js';
 import { privateStorageCode } from './private-storage-errors.js';
 
 async function main() {
   const config = readConfig(await loadLocalEnvironment());
+  const evidenceMode=process.argv.includes('--evidence'),scopes=evidenceMode?EVIDENCE_SCOPES:STORAGE_SCOPES;
   if (!config.storage.clientId || !config.storage.clientSecret) throw new Error('MISSING_DESKTOP_CLIENT');
   // Fail before asking for consent if this Windows account cannot protect the saved token.
   try { await privateDirectory(); }
@@ -19,7 +21,7 @@ async function main() {
   const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync();
   const state = randomToken(), nonce = randomToken();
   const authorizationUrl = client.generateAuthUrl({
-    access_type: 'offline', prompt: 'consent select_account', scope: STORAGE_SCOPES,
+    access_type: 'offline', prompt: 'consent select_account', scope: scopes,
     state, nonce, code_challenge: codeChallenge, code_challenge_method: 'S256',
     login_hint: config.ownerEmail,
   });
@@ -58,11 +60,11 @@ async function main() {
       if (identity.email !== config.ownerEmail) throw new Error('WRONG_OWNER');
       stage = 'scopes';
       const info = await client.getTokenInfo(tokens.access_token);
-      for (const scope of STORAGE_SCOPES.filter(scope => scope.startsWith('https://'))) {
+      for (const scope of scopes.filter(scope => scope.startsWith('https://'))) {
         if (!info.scopes.includes(scope)) throw new Error('MISSING_READ_SCOPE');
       }
       stage = 'save';
-      await saveNewPrivateJson('google-storage-token.json', {
+      await saveNewPrivateJson(evidenceMode?'google-evidence-token.json':'google-storage-token.json', {
         ownerEmail: identity.email, ownerSubject: identity.subject, clientId: config.storage.clientId,
         refreshToken: tokens.refresh_token, authorizedAt: new Date().toISOString(), scopes: info.scopes,
       });
@@ -83,7 +85,7 @@ async function main() {
   server.on('error', () => { clearTimeout(timer); console.error('OWNER_AUTH_SERVER_FAILED'); process.exitCode = 1; });
   server.listen(8085, '127.0.0.1', () => {
     console.log('Owner authorization requires your own browser consent.');
-    console.log('Scopes can read spreadsheets and Drive file metadata in the owner account; the application restricts itself to configured project resources.');
+    console.log(evidenceMode?'Scope: drive.file — create and access only app-created or explicitly selected Drive files. Existing broad Drive access is not requested.':'Scopes can read spreadsheets and Drive file metadata in the owner account; the application restricts itself to configured project resources.');
     console.log('Open http://127.0.0.1:8085/start and choose dh.satun@gmail.com. Do not send tokens or secrets in chat.');
   });
 }

@@ -19,7 +19,7 @@ export function validWriteLink(v){
 export function normalizeMouCommand(input){
   fail(input&&typeof input==='object'&&!Array.isArray(input),'INVALID_WRITE_COMMAND',400);
   const common=['requestId','action','hospitalId','itemId','fiscalYear','expectedVersion'];
-  const extra=input.action==='save'?['status','detail','evidenceLink']:input.action==='review'?['reviewStatus','comment']:[];
+  const extra=input.action==='save'?['status','detail','evidenceLink',...(Object.hasOwn(input,'evidenceFileId')?['evidenceFileId']:[])]:input.action==='review'?['reviewStatus','comment']:[];
   fail(extra.length&&Object.keys(input).length===common.length+extra.length&&Object.keys(input).every(k=>[...common,...extra].includes(k)),'INVALID_WRITE_COMMAND',400);
   fail(typeof input.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(input.requestId),'INVALID_REQUEST_ID',400);
   fail(typeof input.hospitalId==='string'&&MOU_HOSPITAL_IDS.includes(input.hospitalId),'HOSPITAL_OUTSIDE_PROJECT',403);
@@ -31,11 +31,16 @@ export function normalizeMouCommand(input){
     fail(['none','completed','in_progress','cannot_do'].includes(input.status),'INVALID_MOU_STATUS',400);
     c.status=input.status;c.detail=field(input.detail,10000);c.evidenceLink=field(input.evidenceLink,2048);
     fail(!c.evidenceLink||validWriteLink(c.evidenceLink),'INVALID_EVIDENCE_LINK',400);
+    if(Object.hasOwn(input,'evidenceFileId')){fail(typeof input.evidenceFileId==='string'&&/^file-[a-f0-9-]{36}$/.test(input.evidenceFileId),'INVALID_FILE_ID',400);c.evidenceFileId=input.evidenceFileId;}
   }else{
     fail(['approved','rejected'].includes(input.reviewStatus),'INVALID_REVIEW_STATUS',400);
     c.reviewStatus=input.reviewStatus;c.comment=field(input.comment,10000,input.reviewStatus==='rejected');
   }
   return c;
+}
+export function attachedEvidence(tables,actor,fileId,recordId,module,hospitalId,requireCreator=true){
+ const matches=(tables.files||[]).filter(f=>f.id===fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const f=matches[0];
+ fail(f.upload_state==='complete'&&f.mime_type==='application/pdf'&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
 }
 export function writeActor(identity,tables){
   fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
@@ -83,12 +88,14 @@ export function planMouWrite(tables,identity,input,payloadSha256,now=new Date())
   let history=null;
   if(c.action==='save'){
     const link=c.evidenceLink||before?.evidence_link||'';
+    const file=c.evidenceFileId?attachedEvidence(tables,actor,c.evidenceFileId,id,'mou',c.hospitalId):before?.evidence_type==='file'?attachedEvidence(tables,actor,before.evidence_file,id,'mou',c.hospitalId,false):null;
     if(c.status!=='none'){
       fail(c.detail.length>0,'ASSESSMENT_DETAIL_REQUIRED',400);
-      fail(validWriteLink(link),'EVIDENCE_REQUIRED',400);
+      fail(validWriteLink(link)||file,'EVIDENCE_REQUIRED',400);
     }
     next={...next,status:c.status,assessment_detail:c.detail,updated_at:timestamp,updated_by:actor.id};
     if(c.evidenceLink){next.evidence_type='link';next.evidence_link=c.evidenceLink;}
+    if(c.evidenceFileId)Object.assign(next,{evidence_type:'file',evidence_file:c.evidenceFileId,evidence_link:''});
     if(actor.role!=='admin')Object.assign(next,{admin_status:'pending',admin_comment:'',admin_reviewed_at:'',admin_reviewed_by:''});
   }else{
     fail(before,'PROGRESS_NOT_FOUND',404);

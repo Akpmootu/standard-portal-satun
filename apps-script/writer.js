@@ -8,7 +8,7 @@ function writerOutput(value){return ContentService.createTextOutput(JSON.stringi
 function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED'});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function writerRead(sheetId,module){
-  var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES);
+  var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES,['files']);
   if(module){var def=ModuleRules.MODULES[module];writerAssert(def,'UNKNOWN_MODULE');tableNames=tableNames.concat([def.catalog,def.progress,def.history]);}
   var meta=Sheets.Spreadsheets.get(sheetId,{fields:'spreadsheetId,sheets(properties(sheetId,title,gridProperties))'});
   var tabs={},ranges=[];
@@ -72,11 +72,11 @@ function doPost(e){
     lock=LockService.getScriptLock();writerAssert(lock.tryLock(5000),'WRITER_BUSY');
     // Recheck after waiting: a previous unknown commit may have closed the gate.
     writerAssert(properties.getProperty('MOU_WRITES_ENABLED')==='1','WRITES_DISABLED');
-    var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration';
-    writerAssert(account||assessment||management||migration||!payload.operation,'INVALID_ENVELOPE');
-    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
-    var snapshot=writerRead(sheetId,assessment?command.module:null),hash=writerHash(JSON.stringify(command));
-    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
+    var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration',evidence=payload.operation==='evidence';
+    writerAssert(account||assessment||management||migration||evidence||!payload.operation,'INVALID_ENVELOPE');
+    var command=account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):evidence?EvidenceRules.normalizeEvidenceCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
+    var snapshot=writerRead(sheetId,assessment?command.module:evidence&&command.action==='reserve'&&command.module!=='mou'?command.module:null),hash=writerHash(JSON.stringify(command));
+    var plan=account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):evidence?EvidenceRules.planEvidence(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
     if(plan.replayed)return writerOutput(plan.result);
     if(command.action==='review'||command.action==='response'){
       var targets=snapshot.tables.users.filter(u=>u.account_status==='active'&&u.role==='hospital'&&u.hospital_id===command.hospitalId&&snapshot.tables.identities.some(i=>i.legacy_user_id===u.id&&i.status==='active'));

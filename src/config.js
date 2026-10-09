@@ -20,6 +20,7 @@ export function readConfig(env = process.env) {
     ownerEmail: env.GOOGLE_OWNER_EMAIL || 'dh.satun@gmail.com',
     writer:{enabled:env.MOU_WRITES_ENABLED==='1',url:env.MOU_WRITER_URL||'',secret:env.MOU_WRITER_SECRET||''},
     moduleWrites:env.MODULE_WRITES_ENABLED==='1',
+    evidence:{enabled:env.EVIDENCE_WRITES_ENABLED==='1',refreshToken:env.GOOGLE_EVIDENCE_REFRESH_TOKEN||''},
     applicationSheetId: env.GOOGLE_APP_SHEET_ID || '1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k',
     referenceSheetId: env.GOOGLE_REFERENCE_SHEET_ID || '10UtjMGPnBKeMasgtrwYs3SPbqSu-f_RIhPU2tHYAaJw',
     evidenceFolderId: env.GOOGLE_EVIDENCE_FOLDER_ID || '1d3PzVAq2dY7dToKVYHMq6IjBRLC7oMOi',
@@ -54,6 +55,10 @@ export async function loadLocalEnvironment(directory = process.cwd(), environmen
   const token = await optionalJson(resolve(directory, '.secrets/google-storage-token.json'));
   const localSession = await optionalJson(resolve(directory, '.secrets/local-session.json'));
   const writer = await optionalJson(resolve(directory, '.secrets/mou-writer.json'));
+  const evidence = await optionalJson(resolve(directory, '.secrets/google-evidence-token.json'));
+  const evidenceFolder = await optionalJson(resolve(directory, '.secrets/evidence-folder.json'));
+  if(evidence){fail(evidence.ownerEmail===(env.GOOGLE_OWNER_EMAIL||'dh.satun@gmail.com'),'WRONG_TOKEN_OWNER');env.GOOGLE_EVIDENCE_REFRESH_TOKEN ||= evidence.refreshToken;}
+  if(evidenceFolder)env.GOOGLE_EVIDENCE_FOLDER_ID ||= evidenceFolder.id;
   if(writer){env.MOU_WRITER_URL ||= writer.url;env.MOU_WRITER_SECRET ||= writer.secret;}
   env.SESSION_KEY_HEX ||= localSession?.key;
   if (web) {
@@ -64,6 +69,7 @@ export async function loadLocalEnvironment(directory = process.cwd(), environmen
     env.GOOGLE_STORAGE_CLIENT_ID ||= desktop.client_id;
     env.GOOGLE_STORAGE_CLIENT_SECRET ||= desktop.client_secret;
   }
+  if(evidence)fail(evidence.clientId===env.GOOGLE_STORAGE_CLIENT_ID,'WRONG_TOKEN_CLIENT');
   if (token) {
     fail(token.ownerEmail === (env.GOOGLE_OWNER_EMAIL || 'dh.satun@gmail.com'), 'WRONG_TOKEN_OWNER');
     fail(token.clientId === env.GOOGLE_STORAGE_CLIENT_ID, 'WRONG_TOKEN_CLIENT');

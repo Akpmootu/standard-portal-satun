@@ -1,4 +1,7 @@
+import {evidenceResponse} from './evidence-response.js';
 import {privacyPage} from './privacy-page.js';
+import {evidenceDrive} from './evidence-drive.js';
+import {startEvidence,uploadContext,downloadEvidence} from './evidence-http.js';
 import {normalizeManagementCommand} from './management-rules.js';
 import {managementPage} from './management-page.js';
 import {loadReport,reportPage,reportCsv} from './reports.js';
@@ -26,7 +29,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 function one(params, key) {
   fail(params.getAll(key).length <= 1, 'DUPLICATE_PARAMETER', 400);
   return params.get(key);
@@ -38,12 +41,12 @@ async function formBody(req) {
   for await (const chunk of req) { body += chunk; fail(Buffer.byteLength(body) <= 4096, 'BODY_TOO_LARGE', 413); }
   return new URLSearchParams(body);
 }
-async function writeBody(req){
+async function writeBody(req,maxBytes=50000){
   fail((req.headers['content-type']||'').split(';')[0].trim()==='application/json','JSON_REQUIRED',415);
   let body=req.body;
-  if(body==null){body='';for await(const chunk of req){body+=chunk;fail(Buffer.byteLength(body)<=50000,'BODY_TOO_LARGE',413);}}
-  if(typeof body==='string'){fail(Buffer.byteLength(body)<=50000,'BODY_TOO_LARGE',413);try{body=JSON.parse(body);}catch{throw new PortalError('INVALID_JSON',400);}}
-  fail(body&&typeof body==='object'&&!Array.isArray(body)&&Buffer.byteLength(JSON.stringify(body))<=50000,'INVALID_JSON',400);
+  if(body==null){body='';for await(const chunk of req){body+=chunk;fail(Buffer.byteLength(body)<=maxBytes,'BODY_TOO_LARGE',413);}}
+  if(typeof body==='string'){fail(Buffer.byteLength(body)<=maxBytes,'BODY_TOO_LARGE',413);try{body=JSON.parse(body);}catch{throw new PortalError('INVALID_JSON',400);}}
+  fail(body&&typeof body==='object'&&!Array.isArray(body)&&Buffer.byteLength(JSON.stringify(body))<=maxBytes,'INVALID_JSON',400);
   return body;
 }
 
@@ -52,6 +55,7 @@ export function createApp(config, dependencies = {}) {
   const login = dependencies.login || googleLogin(config);
   const rootStore = dependencies.store || googleStore(config);
   const writer = dependencies.writer || mouWriterClient(config);
+  const drive = dependencies.drive || evidenceDrive(config);
   const ready = readiness(config);
   return async function handle(req, res) {
     const store = rootStore.forRequest ? rootStore.forRequest() : rootStore;
@@ -113,6 +117,17 @@ export function createApp(config, dependencies = {}) {
         res.setHeader('Set-Cookie', [codec.clear('session'), codec.clear('flow')]);
         return redirect('/');
       }
+      if(req.method==='POST'&&['/api/files/start','/api/files/chunk','/api/files/status','/api/files/finish'].includes(url.pathname)){
+        fail(config.evidence.enabled&&config.evidence.refreshToken&&writerConfigured(config),'EVIDENCE_UPLOAD_DISABLED');fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
+        const {csrf,...input}=await writeBody(req,url.pathname.endsWith('/chunk')?1500000:50000);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);
+        const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
+        if(url.pathname.endsWith('/start'))return json(200,await startEvidence({input,identity,store,writer,drive,codec}));
+        const context=await uploadContext({token:input.token,identity,access,store,codec}),{file,value}=context;
+        if(url.pathname.endsWith('/chunk')){fail(Object.keys(input).sort().join('|')==='data|offset|token'&&typeof input.data==='string'&&input.data.length<=1400000&&/^[A-Za-z0-9+/]*={0,2}$/.test(input.data),'INVALID_UPLOAD_CHUNK',400);const bytes=Buffer.from(input.data,'base64');fail(bytes.toString('base64')===input.data,'INVALID_UPLOAD_CHUNK',400);return json(200,{ok:true,...await drive.chunk(value.location,bytes,input.offset,value.size)});}
+        fail(Object.keys(input).length===1,'INVALID_EVIDENCE_COMMAND',400);
+        if(url.pathname.endsWith('/status'))return json(200,{ok:true,...await drive.status(value.location,value.size)});
+        await drive.verify(file);return json(200,await writer.execute(identity,{requestId:value.finishRequestId,action:'verify',fileId:file.id},'evidence'));
+      }
       if(req.method==='POST'&&url.pathname==='/api/management'){
         fail(writerConfigured(config),'WRITES_DISABLED');fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
         const {csrf,...input}=await writeBody(req);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);const command=normalizeManagementCommand(input);
@@ -153,6 +168,10 @@ export function createApp(config, dependencies = {}) {
         return json(200,await writer.execute(identity,command));
       }
       if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return json(405, { error: 'WRITES_DISABLED' }); }
+      if(url.pathname.startsWith('/evidence/')){
+        if(!identity)return redirect('/');fail(config.evidence.refreshToken,'EVIDENCE_DOWNLOAD_DISABLED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
+        const {file,bytes}=await downloadEvidence({fileId:url.pathname.slice('/evidence/'.length),access,store,drive});return evidenceResponse(res,file,bytes);
+      }
       if(['/admin/users','/admin/settings','/news','/notifications','/hait/comments','/reports','/reports.csv'].includes(url.pathname)){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
@@ -170,7 +189,7 @@ export function createApp(config, dependencies = {}) {
           fail(model.unit,'HOSPITAL_REQUIRED',400);const action=one(url.searchParams,'action')||'save';fail(['save','review'].includes(action),'INVALID_WRITE_COMMAND',400);
           const item=model.items.find(i=>i.id===one(url.searchParams,'item_id'));fail(item,'ITEM_NOT_FOUND',404);
           let reviewerName='';if(action==='review'){fail(access.user.role==='admin','ADMIN_REQUIRED',403);fail(model.progress.some(r=>r[model.def.itemKey]===item.id),'PROGRESS_NOT_FOUND',404);reviewerName=reviewProfile(await store.table('reviewer_profiles'),access.user.id).name;}
-          body=moduleActionPage(model,item,{csrf:identity.csrf,action,enabled:config.moduleWrites&&writerConfigured(config),reviewerName});
+          body=moduleActionPage(model,item,{csrf:identity.csrf,action,enabled:config.moduleWrites&&writerConfigured(config),reviewerName,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)});
         }else body=modulePage(model,config.moduleWrites&&writerConfigured(config));
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
       }
@@ -179,7 +198,7 @@ export function createApp(config, dependencies = {}) {
         const adminPage=url.pathname==='/admin/registrations';
         if(adminPage){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
         const rows=await store.table('registration_requests');
-        const options={csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true};
+        const options={csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)};
         const body=adminPage?registrationAdminPage(rows,await store.directory([...MOU_HOSPITAL_IDS]),options):registrationPage(identity,rows,options);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
