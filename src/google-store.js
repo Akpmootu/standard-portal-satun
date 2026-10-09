@@ -24,7 +24,7 @@ export function parseTable(name, values) {
   return values.slice(1).filter(row => row.some(value => value !== '' && value != null)).map(row => {
     fail(row.length <= contract.headers.length, 'SCHEMA_MISMATCH');
     const record = Object.fromEntries(contract.headers.map((key, i) => [key, row[i] ?? '']));
-    const id = record.id;
+    const id = record[contract.key || "id"];
     fail(typeof id === 'string' && id.length > 0 && !seen.has(id), 'INVALID_RECORD_ID');
     seen.add(id);
     for (const key of contract.headers.filter(key => key === 'id' || key.endsWith('_id') || key === 'provider_subject')) {

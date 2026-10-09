@@ -327,5 +327,66 @@
       "_request_id"
     ],
     "maxRows": 1000
+  },
+  "audit_log": {
+    "headers": [
+      "id",
+      "actor_id",
+      "action",
+      "record_type",
+      "record_id",
+      "hospital_id",
+      "request_id",
+      "changed_fields",
+      "created_at"
+    ],
+    "maxRows": 20000
+  },
+  "write_requests": {
+    "headers": [
+      "request_id",
+      "actor_id",
+      "operation",
+      "payload_sha256",
+      "record_type",
+      "record_id",
+      "state",
+      "result_version",
+      "created_at",
+      "completed_at"
+    ],
+    "maxRows": 20000,
+    "key": "request_id"
+  },
+  "legacy_accounts": {
+    "headers": [
+      "id",
+      "legacy_user_id",
+      "username",
+      "role",
+      "user_group",
+      "last_login_at",
+      "hospital_id",
+      "created_at",
+      "link_state"
+    ],
+    "maxRows": 1000
+  },
+  "legacy_notifications": {
+    "headers": [
+      "id",
+      "legacy_notification_id",
+      "legacy_user_id",
+      "hospital_id",
+      "type",
+      "title",
+      "message",
+      "related_type",
+      "related_item_id",
+      "is_read",
+      "created_at",
+      "link_state"
+    ],
+    "maxRows": 20000
   }
 }

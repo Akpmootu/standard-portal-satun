@@ -9,3 +9,4 @@ scripts/
 docs/
 README.md
 *.log
+.backups/
