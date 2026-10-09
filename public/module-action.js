@@ -1,0 +1,10 @@
+const form=document.querySelector('#module-action');
+if(form){let pending=false,uncertain=null;const result=document.querySelector('#write-result'),button=form.querySelector('button');
+ const messages={VERSION_CONFLICT:'มีผู้อื่นแก้ไขแล้ว กรุณาตรวจข้อมูลล่าสุดก่อนบันทึกใหม่',RESPONSIBLE_PERSON_REQUIRED:'กรุณาระบุผู้รับผิดชอบ',ASSESSMENT_DETAIL_REQUIRED:'กรุณากรอกรายละเอียด',EVIDENCE_REQUIRED:'กรุณาระบุหลักฐาน',REJECTION_NOTE_REQUIRED:'กรุณาระบุข้อเสนอแนะเมื่อส่งกลับแก้ไข',REVIEW_PROFILE_REQUIRED:'ผู้ดูแลต้องมีข้อมูลผู้ตรวจที่ได้รับอนุมัติ',HOSPITAL_ONLY:'โมดูลนี้ใช้สำหรับโรงพยาบาล',APPROVAL_REQUIRED:'กรุณารออนุมัติสิทธิ์',ACCOUNT_DISABLED:'บัญชีถูกปิดใช้งาน',SIGN_IN_REQUIRED:'กรุณาเข้าสู่ระบบอีกครั้ง',INVALID_CSRF:'เซสชันเปลี่ยนแล้ว โปรดเก็บข้อความและเปิดแบบฟอร์มใหม่',WRITER_BUSY:'มีรายการกำลังบันทึก กรุณาลองใหม่',WRITES_DISABLED:'บริการบันทึกยังไม่เปิด',COMMIT_UNCERTAIN:'ยังยืนยันผลบันทึกไม่ได้ โปรดติดต่อผู้ดูแล'};
+ form.addEventListener('submit',async e=>{e.preventDefault();if(pending)return;
+ const d=Object.fromEntries(new FormData(form));d.expectedVersion=Number(d.expectedVersion);
+ const payload=uncertain||JSON.stringify(d);pending=true;button.disabled=true;result.textContent='กำลังบันทึก…';
+ try{const res=await fetch('/api/assessment/write',{method:'POST',headers:{'Content-Type':'application/json'},body:payload});const r=await res.json();if(!res.ok||r.ok!==true)throw Object.assign(new Error(),{code:r.error});result.textContent='บันทึกสำเร็จ';document.querySelector('#write-back').hidden=false;form.querySelector('fieldset').disabled=true;uncertain=null;}
+ catch(err){if(messages[err.code]){result.textContent=messages[err.code];}else{uncertain=payload;result.textContent='ยังยืนยันผลบันทึกไม่ได้ กดลองอีกครั้งเพื่อส่งคำขอเดิมซ้ำ';button.textContent='ตรวจผล / ส่งคำขอเดิมซ้ำ';for(const el of form.querySelectorAll('input:not([type="hidden"]),textarea,select'))el.disabled=true;}}
+ finally{pending=false;button.disabled=form.querySelector('fieldset').disabled;}});
+}

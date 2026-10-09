@@ -1,0 +1,11 @@
+.env*
+.secrets/
+.migration/
+apps-script/
+outputs/
+work/
+test/
+scripts/
+docs/
+README.md
+*.log
