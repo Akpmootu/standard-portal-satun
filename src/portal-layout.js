@@ -7,11 +7,11 @@ export function portalNavigation({path='/',role='hospital',hospitalId='',year=''
   ['/overview','ภาพรวมระบบ','▦',year?'/overview?year='+encodeURIComponent(year):'/overview'],['/dashboard','ภาพรวม MOU','▥',scoped('/dashboard')],['/mou','ประเมิน MOU','☷',scoped('/mou')],
   ...(role!=='reviewer'?[['/ctam','ประเมิน CTAM','◇'],['/hait','ประเมิน HAIT','▧']]:[]),
   ...(['admin','reviewer'].includes(role)?[['/mou/reviews','งานรอตรวจ MOU','✓',year?'/mou/reviews?year='+encodeURIComponent(year):'/mou/reviews'],['/mou/history','ประวัติการตรวจ','◷',scoped('/mou/history')]]:[]),
-  ['/reports','รายงานและส่งออก','▥'],['/resources','คู่มือประเมิน','▤'],['/news','ประกาศ','◈'],['/notifications','การแจ้งเตือน','○']
+  ['/reports','รายงานและส่งออก','▥'],['/resources','คู่มือประเมิน','▤'],['https://bdh-service.moph.go.th/smarthosp2569/','Smart Hospital ↗','↗'],['/news','ประกาศ','◈'],['/notifications','การแจ้งเตือน','○']
  ]],...(role==='admin'?[['จัดการระบบ',[
   ['/admin/registrations','อนุมัติผู้ใช้งาน','♙'],['/admin/users','จัดการผู้ใช้งาน','♧'],['/admin/settings','รอบประเมิน MOU','◴'],['/admin/archive','ข้อมูลระบบเดิม','▣'],['/admin/integrations','การแจ้งเตือน / AI','⚙']
  ]]]:[])];
- return groups.map(([label,links])=>`<p class="portal-nav-label">${label}</p>${links.map(([p,text,icon,url])=>{const selected=path===p||(p==='/mou'&&path==='/mou/action')||(p==='/ctam'&&path.startsWith('/ctam/'))||(p==='/hait'&&path.startsWith('/hait/'));return `<a class="portal-nav-link${selected?' selected':''}" href="${esc(url||p)}"${selected?' aria-current="page"':''}><span aria-hidden="true">${icon}</span>${text}</a>`;}).join('')}`).join('');
+ return groups.map(([label,links])=>`<p class="portal-nav-label">${label}</p>${links.map(([p,text,icon,url])=>{const selected=path===p||(p==='/mou'&&path==='/mou/action')||(p==='/ctam'&&path.startsWith('/ctam/'))||(p==='/hait'&&path.startsWith('/hait/'));return `<a class="portal-nav-link${selected?' selected':''}" href="${esc(url||p)}"${p.startsWith('https://')?' target="_blank" rel="noopener noreferrer"':''}${selected?' aria-current="page"':''}><span aria-hidden="true">${icon}</span>${text}</a>`;}).join('')}`).join('');
 }
 
 export function portalStart(title,{path='/',role='hospital',hospitalId='',year='',scripts='',styles='',bodyClass='action-page',heading=true,guest=false}={}){
