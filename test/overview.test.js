@@ -6,6 +6,7 @@ import {createServer} from 'node:http';
 import {createApp} from '../src/app.js';
 import {readConfig} from '../src/config.js';
 import {sessionCodec} from '../src/session.js';
+import {loadReport} from '../src/reports.js';
 
 function fixture(){const t=reviewerFixture();t.mou_agencies.push({id:'11402',user_group:'โรงพยาบาล',classification_source:'owner_confirmed',status:'confirmed'});Object.assign(t,{ctam_items:[{id:'1'}],ctam_progress:[],rg12_sub_items:[{id:'1'}],rg12_progress:[]});t.mou_progress.push({...t.mou_progress[0],id:'out-of-scope',hospital_id:'11402'});const calls=[];return {calls,store:{table:async n=>{calls.push(n);return t[n]||[];},directory:async ids=>ids.map(id=>({id,name:'หน่วยบริการตัวอย่าง'}))}};}
 test('overview aggregates scoped data without expanding reviewer access or reading identities',async()=>{
@@ -33,4 +34,11 @@ test('overview distinguishes no records from completion and rejects invalid inpu
  await assert.rejects(loadOverview(store,{status:'active',user:{role:'admin'}},'2569.0'),{code:'INVALID_FISCAL_YEAR'});assert.equal(calls.length,0);
  const m=await loadOverview(store,{status:'active',user:{role:'hospital',hospitalId:'11402'}},'2570');
  assert.equal(m.modules[0].completed,0);assert.equal(m.modules[1].total,1);assert.equal(m.modules[1].completed,0);assert.equal(m.modules[1].approved,0);assert.equal(m.modules[1].pending,0);
+});
+test('report and overview pending totals exclude records still marked not assessed',async()=>{
+ const {store}=fixture(),baseTable=store.table;
+ store.table=async name=>name==='ctam_progress'?[{id:'p1',hospital_id:'11402',item_id:'1',status:'none',admin_status:'pending'}]:baseTable(name);
+ const access={status:'active',user:{role:'hospital',hospitalId:'11402'}};
+ const report=await loadReport(store,access,{module:'ctam',year:2569});assert.equal(report.results[0].pending,0);assert.equal(report.results[0].none,1);
+ const m=await loadOverview(store,access,'2570');assert.equal(m.modules[1].pending,0);assert.match(overviewPage(m),/ยังไม่มีผลบันทึกในปีที่เลือก/);
 });
