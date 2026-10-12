@@ -84,11 +84,30 @@ test('logout requires matching Origin and per-session CSRF', async t => {
   const cookie = issued.cookie.split(';')[0];
   const options = { method: 'POST', headers: { cookie, origin: 'https://evil.example' }, body: 'csrf=csrf-1' };
   assert.equal((await request('/auth/logout', options)).status, 403);
+  for(const origin of [undefined,'null']){
+    const headers={cookie};if(origin!==undefined)headers.origin=origin;
+    const rejected=await request('/auth/logout',{method:'POST',headers,body:'csrf=csrf-1'});
+    assert.equal(rejected.status,403);assert.equal(rejected.headers.get('set-cookie'),null);
+  }
   options.headers.origin = config.origin; options.body = 'csrf=wrong';
   assert.equal((await request('/auth/logout', options)).status, 403);
   options.body = 'csrf=csrf-1';
   const res = await request('/auth/logout', options);
   assert.equal(res.status, 303); assert.match(res.headers.get('set-cookie'), /Max-Age=0/);
+});
+
+test('approved account pages load the logout client while retaining no-referrer and strict server checks',async t=>{
+ let role='admin';
+ const store={table:async name=>name==='identities'?[{provider:'google',provider_subject:'test-sub',legacy_user_id:'u1',status:'active',approved_by:'a',approved_at:'x'}]:[{id:'u1',role,account_status:'active',hospital_id:'10746'}]};
+ const {request,codec}=await fixture(t,{store});
+ const issued=await codec.issue('session',{provider:'google',subject:'test-sub',email:'test@example.test',csrf:'test-csrf'},60);
+ for(role of ['admin','hospital','reviewer']){
+   const response=await request('/',{headers:{cookie:issued.cookie.split(';')[0]}}),html=await response.text();
+   assert.equal(response.status,200);assert.equal(response.headers.get('referrer-policy'),'no-referrer');
+   assert.match(html,/<script src="\/account\.js" defer><\/script>/);
+   assert.match(html,/<form method="post" action="\/auth\/logout">/);
+ }
+ assert.equal((await request('/account.js')).status,200);
 });
 
 test('unlinked user may see own identity only and never reaches assessment table', async t => {
