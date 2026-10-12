@@ -20,6 +20,13 @@ test('delivery completion is bound to the reserving actor and cannot settle twic
 test('AI payload summary excludes evidence, free text, names and personal details',()=>{const s=reportSummary({module:'mou',year:2569,results:[{unit:{id:'09625',name:'PRIVATE_NAME'},total:1,completed:1,inProgress:0,cannotDo:0,none:0,approved:1,rejected:0,pending:0,records:[{assessment_detail:'PRIVATE_DETAIL',evidence_link:'PRIVATE_LINK'}]}]});assert.ok(!JSON.stringify(s).includes('PRIVATE_'));assert.equal(s.units[0].hospitalId,'09625');});
 test('AI and Telegram stay disabled before free budget and destination confirmation',async()=>{let calls=0;const client=integrationClient({ai:{enabled:true,key:'secret',freeConfirmed:false},telegram:{enabled:true,confirmed:false}},null,async()=>{calls++;});await assert.rejects(client.ask({}),{code:'AI_NOT_ENABLED'});await assert.rejects(client.send({}),{code:'TELEGRAM_NOT_ENABLED'});assert.equal(calls,0);});
 
+test('paused AI never reserves quota or calls the provider even with a configured free key',async()=>{
+ let calls=0,reservations=0;
+ const client=integrationClient({ai:{enabled:false,freeConfirmed:true,key:'configured-key'}},{execute:async()=>{reservations++;}},async()=>{calls++;});
+ await assert.rejects(client.ask({}),{code:'AI_NOT_ENABLED'});
+ assert.equal(calls,0);assert.equal(reservations,0);
+});
+
 test('AI provider limits settle the reservation without leaking provider data or retrying',async()=>{
  const data=writeFixture(),store={table:async n=>data[n]||[],directory:async()=>[{id:'09625',name:'PRIVATE_NAME'}]},commands=[];let calls=0;
  const client=integrationClient({ai:{enabled:true,freeConfirmed:true,key:'PRIVATE_KEY'}},{execute:async(i,c)=>{commands.push(c);return {recordId:'service-'+c.requestId,replayed:false};}},async()=>{calls++;return new Response('PRIVATE_PROVIDER_DETAILS',{status:429});});
