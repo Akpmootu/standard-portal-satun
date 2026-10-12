@@ -5,7 +5,8 @@ import {loadModule} from './module-page.js';
 import {validWriteLink} from './mou-write-rules.js';
 export const escapeHtml=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const esc=escapeHtml;
-export function portalShell(title,body,admin=false){return `<!doctype html><html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Standard Portal</title><link rel="stylesheet" href="/workspace.css"><link rel="stylesheet" href="/mou-action.css"><link rel="stylesheet" href="/modules.css"><script src="/management.js" defer></script></head><body class="action-page"><main><nav class="module-nav" aria-label="เมนูหลัก"><a href="/">บัญชี</a><a href="/dashboard">MOU</a><a href="/ctam">CTAM</a><a href="/hait">HAIT</a><a href="/reports">รายงาน</a><a href="/resources">คู่มือประเมิน</a><a href="/assistant">ผู้ช่วย AI</a><a href="/news">ประกาศ</a><a href="/notifications">การแจ้งเตือน</a>${admin?'<a href="/admin/users">จัดการผู้ใช้งาน</a><a href="/admin/archive">ข้อมูลระบบเดิม</a><a href="/admin/settings">รอบประเมิน</a><a href="/admin/integrations">AI / Telegram</a>':''}</nav><p class="eyebrow">STANDARD PORTAL · SATUN</p><h1>${esc(title)}</h1>${body}</main></body></html>`;}
+export {portalShell} from './portal-layout.js';
+import {portalShell} from './portal-layout.js';
 function hidden(fields){return Object.entries(fields).map(([k,v])=>`<input type="hidden" name="${k}" value="${esc(v)}">`).join('');}
 function form(action,fields,body,csrf,enabled){return `<form data-management>${hidden({action,requestId:randomUUID(),csrf,...fields})}<fieldset ${enabled?'':'disabled'}>${body}<button class="btn primary" type="submit">บันทึก</button></fieldset><p role="status" aria-live="polite"></p></form>`;}
 function select(name,label,options,value){return `<label>${label}<select name="${name}">${options.map(([k,t])=>`<option value="${esc(k)}" ${String(value)===String(k)?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;}
@@ -33,9 +34,9 @@ export async function managementPage(path,store,access,query,{csrf,enabled}){
   body=rows.map(r=>`<section class="card"><h2>${esc(r.title)}</h2><p>${esc(r.message)}</p><p>${esc(r.created_at)} · ${Number(r.is_read)?'อ่านแล้ว':'ยังไม่อ่าน'}</p>${!Number(r.is_read)?form('read',{notificationId:r.id,expectedVersion:r._version},'',csrf,enabled):''}</section>`).join('')||'<p>ไม่มีการแจ้งเตือนของบัญชีนี้</p>';
  }else if(path==='/hait/comments'){
   title='ความเห็นและคำขอความช่วยเหลือ HAIT';const m=await loadModule(store,access,'hait',query.hospitalId);
-  if(!m.unit)return portalShell(title,'<p>เลือกโรงพยาบาลก่อนส่งความเห็น</p>'+m.units.map(u=>`<p><a href="/hait/comments?hospital_id=${u.id}">${esc(u.name)}</a></p>`).join(''),admin);
+  if(!m.unit)return portalShell(title,'<p>เลือกโรงพยาบาลก่อนส่งความเห็น</p>'+m.units.map(u=>`<p><a href="/hait/comments?hospital_id=${u.id}">${esc(u.name)}</a></p>`).join(''),{role:access.user.role,path});
   const rows=(await store.table('rg12_comments')).filter(r=>r.hospital_id===m.hospitalId);body=`<h2>${esc(m.unit.name)}</h2><a href="/hait?hospital_id=${m.hospitalId}">กลับหน้าประเมิน HAIT</a>`;
   for(const chapter of m.chapters){const r=rows.find(r=>r.chapter_id===chapter.id);body+=`<section class="card"><h2>หมวด ${esc(chapter.chapter_number)} · ${esc(chapter.title)}</h2>${form('comment',{hospitalId:m.hospitalId,chapterId:chapter.id,expectedVersion:r? r._version:0},area('comment','ความเห็น / ปัญหา',r?.comment_text)+select('needsHelp','ต้องการความช่วยเหลือจากจังหวัด',[['false','ไม่ต้องการ'],['true','ต้องการ']],String(Number(r?.needs_provincial_help)===1)),csrf,enabled)}${r?.admin_response?`<h3>คำตอบผู้ดูแล</h3><p>${esc(r.admin_response)}</p><p>${esc(r.admin_responded_by)} · ${esc(r.admin_responded_at)}</p>`:''}${admin&&r?form('response',{hospitalId:m.hospitalId,chapterId:chapter.id,expectedVersion:r._version},area('response','ตอบความเห็น',r.admin_response),csrf,enabled):''}</section>`;}
  }else fail(false,'NOT_FOUND',404);
- return portalShell(title,body,admin);
+ return portalShell(title,body,{role:access.user.role,path});
 }

@@ -1,3 +1,4 @@
+import {loadOverview,overviewPage} from './overview-page.js';
 import migrationCatalog from './migration-resources.json' with {type:'json'};
 import {migrationReader,archivePage,resourcesPage,libraryFile,requireArchiveAdmin} from './migration-library.js';
 import {evidenceResponse} from './evidence-response.js';
@@ -35,7 +36,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['portal-layout.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 function one(params, key) {
   fail(params.getAll(key).length <= 1, 'DUPLICATE_PARAMETER', 400);
   return params.get(key);
@@ -244,6 +245,14 @@ export function createApp(config, dependencies = {}) {
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
       }
+      if(url.pathname==='/overview'){
+        if(!identity)return redirect('/');
+        fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
+        const access=await resolveAccess(identity,store);
+        const model=await loadOverview(store,access,one(url.searchParams,'year'));
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
+        return res.end(overviewPage(model));
+      }
       if(url.pathname==='/mou/reviews'){
         if(!identity)return redirect('/');
         fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
@@ -284,7 +293,7 @@ export function createApp(config, dependencies = {}) {
         } catch(error) {
           if(url.pathname.startsWith('/api/')||error instanceof PortalError&&error.status<500)throw error;
           res.writeHead(503,{'Content-Type':'text/html; charset=utf-8'});
-          return res.end(readOnlyPage('mou/history',null,{error:true,local:config.local}));
+          return res.end(readOnlyPage('mou/history',null,{error:true,local:config.local,role:access.user.role}));
         }
       }
       if (['/dashboard','/mou'].includes(url.pathname)) {
@@ -302,7 +311,7 @@ export function createApp(config, dependencies = {}) {
         } catch(error) {
           if(error instanceof PortalError && error.status<500)throw error;
           res.writeHead(503, {'Content-Type':'text/html; charset=utf-8'});
-          return res.end(readOnlyPage(url.pathname.slice(1),null,{error:true,local:config.local}));
+          return res.end(readOnlyPage(url.pathname.slice(1),null,{error:true,local:config.local,role:access.user.role}));
         }
       }
       if (url.pathname === '/') {
