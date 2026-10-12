@@ -152,7 +152,7 @@ export function createApp(config, dependencies = {}) {
         const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
         if(url.pathname.endsWith('/start'))return json(200,await startEvidence({input,identity,store,writer,drive,codec}));
         const context=await uploadContext({token:input.token,identity,access,store,codec}),{file,value}=context;
-        if(url.pathname.endsWith('/chunk')){fail(Object.keys(input).sort().join('|')==='data|offset|token'&&typeof input.data==='string'&&input.data.length<=1400000&&/^[A-Za-z0-9+/]*={0,2}$/.test(input.data),'INVALID_UPLOAD_CHUNK',400);const bytes=Buffer.from(input.data,'base64');fail(bytes.toString('base64')===input.data,'INVALID_UPLOAD_CHUNK',400);return json(200,{ok:true,...await drive.chunk(value.location,bytes,input.offset,value.size)});}
+        if(url.pathname.endsWith('/chunk')){fail(Object.keys(input).sort().join('|')==='data|offset|token'&&typeof input.data==='string'&&input.data.length<=1400000&&/^[A-Za-z0-9+/]*={0,2}$/.test(input.data),'INVALID_UPLOAD_CHUNK',400);const bytes=Buffer.from(input.data,'base64');fail(bytes.toString('base64')===input.data,'INVALID_UPLOAD_CHUNK',400);return json(200,{ok:true,...await drive.chunk(value.location,bytes,input.offset,value.size,file.mime_type)});}
         fail(Object.keys(input).length===1,'INVALID_EVIDENCE_COMMAND',400);
         if(url.pathname.endsWith('/status'))return json(200,{ok:true,...await drive.status(value.location,value.size)});
         await drive.verify(file);return json(200,await writer.execute(identity,{requestId:value.finishRequestId,action:'verify',fileId:file.id},'evidence'));

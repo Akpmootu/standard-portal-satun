@@ -14,6 +14,25 @@ function fail(condition, code, status = 503) {
 
 return {PortalError,fail};
 })();
+var EvidenceTypes=(function(){
+const MAX_IMAGE_BYTES=2*1024*1024;
+const MAX_LEGACY_PDF_BYTES=10*1024*1024;
+function imageMime(filename){
+ if(typeof filename!=='string')return '';
+ return /\.jpe?g$/i.test(filename)?'image/jpeg':/\.png$/i.test(filename)?'image/png':/\.webp$/i.test(filename)?'image/webp':'';
+}
+function evidenceLimit(mime){return mime==='application/pdf'?MAX_LEGACY_PDF_BYTES:['image/jpeg','image/png','image/webp'].includes(mime)?MAX_IMAGE_BYTES:0;}
+function evidenceSignature(bytes,mime){
+ const at=(offset,values)=>values.every((v,i)=>bytes[offset+i]===v);
+ if(mime==='application/pdf')return at(0,[37,80,68,70,45]);
+ if(mime==='image/jpeg')return at(0,[255,216,255]);
+ if(mime==='image/png')return at(0,[137,80,78,71,13,10,26,10]);
+ if(mime==='image/webp')return at(0,[82,73,70,70])&&at(8,[87,69,66,80]);
+ return false;
+}
+
+return {MAX_IMAGE_BYTES,MAX_LEGACY_PDF_BYTES,imageMime,evidenceLimit,evidenceSignature};
+})();
 var WriterReference=(function(){
 // Project scope from the existing mou_assessment.php selector, not the national directory.
 const MOU_HOSPITAL_IDS = Object.freeze([
@@ -241,6 +260,7 @@ return {STATUS_LABELS,REVIEW_LABELS,PERIOD_LABELS,currentFiscalYear,safeEvidence
 var WriterRules=(function(){
 const {reviewProfile,requireReviewerScope} = WriterReviewAccess;
 const {fail} = WriterErrors;
+const {evidenceLimit} = EvidenceTypes;
 const {MOU_HOSPITAL_IDS} = WriterReference;
 const {normalizeAgencies} = WriterAgencies;
 const {currentFiscalYear,legacyLock,normalizeCatalog} = WriterRead;
@@ -281,7 +301,7 @@ function normalizeMouCommand(input){
 }
 function attachedEvidence(tables,actor,fileId,recordId,module,hospitalId,requireCreator=true){
  const matches=(tables.files||[]).filter(f=>f.id===fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const f=matches[0];
- fail(f.upload_state==='complete'&&f.mime_type==='application/pdf'&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
+ fail(f.upload_state==='complete'&&evidenceLimit(f.mime_type)>0&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
 }
 function writeActor(identity,tables){
   fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
@@ -608,6 +628,7 @@ return {MIGRATION_HEADERS,normalizeMigrationCommand,planMigration};
 })();
 var EvidenceRules=(function(){
 const {fail} = WriterErrors;
+const {MAX_IMAGE_BYTES,imageMime} = EvidenceTypes;
 const {writeActor,planMouWrite,bangkokTimestamp} = WriterRules;
 const {planModuleWrite,MODULES} = ModuleRules;
 const MAX_EVIDENCE_BYTES=10*1024*1024;
@@ -620,8 +641,8 @@ function normalizeEvidenceCommand(c){
  if(c.action==='reserve'){
   fail(uuid(c.saveRequestId)&&['mou','ctam','hait'].includes(c.module)&&typeof c.hospitalId==='string'&&typeof c.itemId==='string'&&Number.isSafeInteger(c.progressVersion)&&c.progressVersion>=0,'INVALID_EVIDENCE_COMMAND',400);
   fail(c.module==='mou'?Number.isInteger(c.fiscalYear)&&c.fiscalYear>=2500&&c.fiscalYear<=2700:c.fiscalYear===0,'INVALID_FISCAL_YEAR',400);
-  fail(typeof c.filename==='string'&&c.filename.length>0&&c.filename.length<=200&&!/[\\/\u0000-\u001f\u007f]/.test(c.filename)&&/\.pdf$/i.test(c.filename),'PDF_REQUIRED',400);
-  fail(Number.isSafeInteger(c.size)&&c.size>=5&&c.size<=MAX_EVIDENCE_BYTES,'INVALID_FILE_SIZE',400);
+  fail(typeof c.filename==='string'&&c.filename.length>0&&c.filename.length<=200&&!/[\\/\u0000-\u001f\u007f]/.test(c.filename)&&imageMime(c.filename),'IMAGE_REQUIRED',400);
+  fail(Number.isSafeInteger(c.size)&&c.size>=12&&c.size<=MAX_IMAGE_BYTES,'INVALID_FILE_SIZE',400);
   fail(typeof c.sha256==='string'&&/^[a-f0-9]{64}$/.test(c.sha256)&&typeof c.driveId==='string'&&/^[A-Za-z0-9_-]{10,200}$/.test(c.driveId),'INVALID_EVIDENCE_COMMAND',400);
  }else fail(typeof c.fileId==='string'&&/^file-[a-f0-9-]{36}$/.test(c.fileId),'INVALID_EVIDENCE_COMMAND',400);
  return c;
@@ -642,7 +663,7 @@ function planEvidence(tables,identity,input,sha,now=new Date()){
   const target=evidenceTarget(tables,identity,c,sha,now),id='file-'+c.requestId;
   fail(!tables.files.some(f=>f.id===id||f.drive_file_id===c.driveId),'FILE_ALREADY_EXISTS',409);
   fail(tables.files.filter(f=>f.created_by===actor.id&&f.upload_state==='uploading').length<20,'UPLOAD_LIMIT_REACHED',429);
-  next={id,drive_file_id:c.driveId,hospital_id:c.hospitalId,record_type:c.module,record_id:target.id,original_filename:c.filename,mime_type:'application/pdf',size_bytes:c.size,sha256:c.sha256,upload_state:'uploading',created_by:actor.id,created_at:time,_version:1};
+  next={id,drive_file_id:c.driveId,hospital_id:c.hospitalId,record_type:c.module,record_id:target.id,original_filename:c.filename,mime_type:imageMime(c.filename),size_bytes:c.size,sha256:c.sha256,upload_state:'uploading',created_by:actor.id,created_at:time,_version:1};
  }else{
   const matches=tables.files.filter(f=>f.id===c.fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const old=matches[0];
   fail(old.created_by===actor.id&&(actor.role==='admin'||old.hospital_id===actor.hospital_id),'FILE_ACCESS_DENIED',403);

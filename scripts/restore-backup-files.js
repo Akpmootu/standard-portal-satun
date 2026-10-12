@@ -16,7 +16,7 @@ try {
  for(const file of files.filter(f=>f.upload_state==='complete')){
   const bytes=Buffer.from(snapshot.fileContents.find(f=>f.id===file.id).base64,'base64'),copy={...file,drive_file_id:await drive.generateId()};
   const location=await drive.begin(copy);let offset=0;
-  while(offset<bytes.length){const r=await drive.chunk(location,bytes.subarray(offset,Math.min(offset+1024*1024,bytes.length)),offset,bytes.length);if(r.nextOffset<=offset)throw Error('RESTORE_STALLED');offset=r.nextOffset;}
+  while(offset<bytes.length){const r=await drive.chunk(location,bytes.subarray(offset,Math.min(offset+1024*1024,bytes.length)),offset,bytes.length,copy.mime_type);if(r.nextOffset<=offset)throw Error('RESTORE_STALLED');offset=r.nextOffset;}
   await drive.verify(copy);restored.push({fileId:file.id,oldDriveId:file.drive_file_id,newDriveId:copy.drive_file_id,size:file.size_bytes,sha256:file.sha256});
  }
  const receipt={ok:true,isolated:true,private:true,folderId:created.id,restoredAt:new Date().toISOString(),files:restored};

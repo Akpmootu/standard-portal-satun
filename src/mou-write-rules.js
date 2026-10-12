@@ -1,5 +1,6 @@
 import {reviewProfile,requireReviewerScope} from './review-access.js';
 import {fail} from './errors.js';
+import {evidenceLimit} from './evidence-types.js';
 import {MOU_HOSPITAL_IDS} from './mou-reference.js';
 import {normalizeAgencies} from './mou-agencies.js';
 import {currentFiscalYear,legacyLock,normalizeCatalog} from './mou-read.js';
@@ -40,7 +41,7 @@ export function normalizeMouCommand(input){
 }
 export function attachedEvidence(tables,actor,fileId,recordId,module,hospitalId,requireCreator=true){
  const matches=(tables.files||[]).filter(f=>f.id===fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const f=matches[0];
- fail(f.upload_state==='complete'&&f.mime_type==='application/pdf'&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
+ fail(f.upload_state==='complete'&&evidenceLimit(f.mime_type)>0&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
 }
 export function writeActor(identity,tables){
   fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);

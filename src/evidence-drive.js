@@ -1,7 +1,7 @@
 import {OAuth2Client} from 'google-auth-library';
 import {createHash} from 'node:crypto';
 import {fail,PortalError} from './errors.js';
-import {MAX_EVIDENCE_BYTES} from './evidence-rules.js';
+import {evidenceLimit,evidenceSignature} from './evidence-types.js';
 export const EVIDENCE_SCOPES=['openid','email','https://www.googleapis.com/auth/drive.file'];
 export function validUploadLocation(value){try{const u=new URL(value);return u.protocol==='https:'&&u.hostname==='www.googleapis.com'&&!u.username&&!u.password&&u.pathname==='/upload/drive/v3/files'&&u.searchParams.get('uploadType')==='resumable'&&Boolean(u.searchParams.get('upload_id'));}catch{return false;}}
 export function privateFile(file,config,mime){
@@ -14,14 +14,14 @@ export function evidenceDrive(config,injectedClient){
  async function metadata(id){fail(/^[A-Za-z0-9_-]{10,200}$/.test(id),'INVALID_FILE_ID',400);return (await request({url:'https://www.googleapis.com/drive/v3/files/'+id,method:'GET',params:{fields:fileFields}})).data;}
  async function begin(file){
   privateFile(await metadata(config.evidenceFolderId),config,'application/vnd.google-apps.folder');
-  const result=await request({url:'https://www.googleapis.com/upload/drive/v3/files',method:'POST',params:{uploadType:'resumable',fields:'id'},headers:{'Content-Type':'application/json; charset=utf-8','X-Upload-Content-Type':'application/pdf','X-Upload-Content-Length':String(file.size_bytes)},data:{id:file.drive_file_id,name:file.original_filename,mimeType:'application/pdf',parents:[config.evidenceFolderId],appProperties:{portalFileId:file.id,hospitalId:file.hospital_id,module:file.record_type}}});
+  const result=await request({url:'https://www.googleapis.com/upload/drive/v3/files',method:'POST',params:{uploadType:'resumable',fields:'id'},headers:{'Content-Type':'application/json; charset=utf-8','X-Upload-Content-Type':file.mime_type,'X-Upload-Content-Length':String(file.size_bytes)},data:{id:file.drive_file_id,name:file.original_filename,mimeType:file.mime_type,parents:[config.evidenceFolderId],appProperties:{portalFileId:file.id,hospitalId:file.hospital_id,module:file.record_type}}});
   const location=result.headers.get?.('location')||result.headers.location;fail(validUploadLocation(location),'INVALID_UPLOAD_LOCATION');return location;
  }
  async function generateId(){const r=(await request({url:'https://www.googleapis.com/drive/v3/files/generateIds',method:'GET',params:{count:1,space:'drive',type:'files'}})).data;fail(r.ids?.length===1&&/^[A-Za-z0-9_-]{10,200}$/.test(r.ids[0]),'INVALID_DRIVE_RESPONSE');return r.ids[0];}
- async function chunk(location,data,offset,total){
-  fail(validUploadLocation(location),'INVALID_UPLOAD_LOCATION',400);fail(Buffer.isBuffer(data)&&data.length>0&&data.length<=1024*1024&&Number.isSafeInteger(offset)&&offset>=0&&offset+data.length<=total&&total<=MAX_EVIDENCE_BYTES&&(offset+data.length===total||data.length%(256*1024)===0),'INVALID_UPLOAD_CHUNK',400);
-  if(offset===0)fail(data.subarray(0,5).toString('ascii')==='%PDF-','PDF_REQUIRED',400);
-  const r=await request({url:location,method:'PUT',headers:{'Content-Type':'application/pdf','Content-Length':String(data.length),'Content-Range':`bytes ${offset}-${offset+data.length-1}/${total}`},data,validateStatus:s=>[200,201,308].includes(s)});
+ async function chunk(location,data,offset,total,mime='application/pdf'){
+  fail(validUploadLocation(location),'INVALID_UPLOAD_LOCATION',400);fail(Buffer.isBuffer(data)&&data.length>0&&data.length<=1024*1024&&Number.isSafeInteger(offset)&&offset>=0&&offset+data.length<=total&&total<=evidenceLimit(mime)&&(offset+data.length===total||data.length%(256*1024)===0),'INVALID_UPLOAD_CHUNK',400);
+  if(offset===0)fail(evidenceSignature(data,mime),'INVALID_FILE_CONTENT',400);
+  const r=await request({url:location,method:'PUT',headers:{'Content-Type':mime,'Content-Length':String(data.length),'Content-Range':`bytes ${offset}-${offset+data.length-1}/${total}`},data,validateStatus:s=>[200,201,308].includes(s)});
   if([200,201].includes(r.status))return {nextOffset:total,complete:true};const range=r.headers.get?.('range')||r.headers.range;fail(typeof range==='string'&&/^bytes=0-\d+$/.test(range),'INVALID_DRIVE_RESPONSE');return {nextOffset:Number(range.split('-')[1])+1,complete:false};
  }
  async function status(location,total){
@@ -29,9 +29,9 @@ export function evidenceDrive(config,injectedClient){
   if([200,201].includes(r.status))return {nextOffset:total,complete:true};const range=r.headers.get?.('range')||r.headers.range;fail(!range||/^bytes=0-\d+$/.test(range),'INVALID_DRIVE_RESPONSE');return {nextOffset:range?Number(range.split('-')[1])+1:0,complete:false};
  }
  async function download(file){
-  const m=await metadata(file.drive_file_id);privateFile(m,config,'application/pdf');fail(Number(m.size)===file.size_bytes&&file.size_bytes<=MAX_EVIDENCE_BYTES&&m.parents?.length===1&&m.parents[0]===config.evidenceFolderId&&m.appProperties?.portalFileId===file.id,'INVALID_EVIDENCE_FILE',409);
+  const m=await metadata(file.drive_file_id);const mime=file.mime_type||'application/pdf';privateFile(m,config,mime);fail(Number(m.size)===file.size_bytes&&file.size_bytes<=evidenceLimit(mime)&&m.parents?.length===1&&m.parents[0]===config.evidenceFolderId&&m.appProperties?.portalFileId===file.id,'INVALID_EVIDENCE_FILE',409);
   const result=await request({url:'https://www.googleapis.com/drive/v3/files/'+file.drive_file_id,method:'GET',params:{alt:'media'},responseType:'arraybuffer'}),bytes=Buffer.from(result.data);
-  fail(bytes.length===file.size_bytes&&bytes.subarray(0,5).toString('ascii')==='%PDF-'&&createHash('sha256').update(bytes).digest('hex')===file.sha256,'EVIDENCE_CHECKSUM_MISMATCH',409);return bytes;
+  fail(bytes.length===file.size_bytes&&evidenceSignature(bytes,mime)&&createHash('sha256').update(bytes).digest('hex')===file.sha256,'EVIDENCE_CHECKSUM_MISMATCH',409);return bytes;
  }
  return {metadata,generateId,begin,chunk,status,download,verify:async file=>{await download(file);return true;}};
 }

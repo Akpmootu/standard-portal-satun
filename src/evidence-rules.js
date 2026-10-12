@@ -1,4 +1,5 @@
 import {fail} from './errors.js';
+import {MAX_IMAGE_BYTES,imageMime} from './evidence-types.js';
 import {writeActor,planMouWrite,bangkokTimestamp} from './mou-write-rules.js';
 import {planModuleWrite,MODULES} from './module-rules.js';
 export const MAX_EVIDENCE_BYTES=10*1024*1024;
@@ -11,8 +12,8 @@ export function normalizeEvidenceCommand(c){
  if(c.action==='reserve'){
   fail(uuid(c.saveRequestId)&&['mou','ctam','hait'].includes(c.module)&&typeof c.hospitalId==='string'&&typeof c.itemId==='string'&&Number.isSafeInteger(c.progressVersion)&&c.progressVersion>=0,'INVALID_EVIDENCE_COMMAND',400);
   fail(c.module==='mou'?Number.isInteger(c.fiscalYear)&&c.fiscalYear>=2500&&c.fiscalYear<=2700:c.fiscalYear===0,'INVALID_FISCAL_YEAR',400);
-  fail(typeof c.filename==='string'&&c.filename.length>0&&c.filename.length<=200&&!/[\\/\u0000-\u001f\u007f]/.test(c.filename)&&/\.pdf$/i.test(c.filename),'PDF_REQUIRED',400);
-  fail(Number.isSafeInteger(c.size)&&c.size>=5&&c.size<=MAX_EVIDENCE_BYTES,'INVALID_FILE_SIZE',400);
+  fail(typeof c.filename==='string'&&c.filename.length>0&&c.filename.length<=200&&!/[\\/\u0000-\u001f\u007f]/.test(c.filename)&&imageMime(c.filename),'IMAGE_REQUIRED',400);
+  fail(Number.isSafeInteger(c.size)&&c.size>=12&&c.size<=MAX_IMAGE_BYTES,'INVALID_FILE_SIZE',400);
   fail(typeof c.sha256==='string'&&/^[a-f0-9]{64}$/.test(c.sha256)&&typeof c.driveId==='string'&&/^[A-Za-z0-9_-]{10,200}$/.test(c.driveId),'INVALID_EVIDENCE_COMMAND',400);
  }else fail(typeof c.fileId==='string'&&/^file-[a-f0-9-]{36}$/.test(c.fileId),'INVALID_EVIDENCE_COMMAND',400);
  return c;
@@ -33,7 +34,7 @@ export function planEvidence(tables,identity,input,sha,now=new Date()){
   const target=evidenceTarget(tables,identity,c,sha,now),id='file-'+c.requestId;
   fail(!tables.files.some(f=>f.id===id||f.drive_file_id===c.driveId),'FILE_ALREADY_EXISTS',409);
   fail(tables.files.filter(f=>f.created_by===actor.id&&f.upload_state==='uploading').length<20,'UPLOAD_LIMIT_REACHED',429);
-  next={id,drive_file_id:c.driveId,hospital_id:c.hospitalId,record_type:c.module,record_id:target.id,original_filename:c.filename,mime_type:'application/pdf',size_bytes:c.size,sha256:c.sha256,upload_state:'uploading',created_by:actor.id,created_at:time,_version:1};
+  next={id,drive_file_id:c.driveId,hospital_id:c.hospitalId,record_type:c.module,record_id:target.id,original_filename:c.filename,mime_type:imageMime(c.filename),size_bytes:c.size,sha256:c.sha256,upload_state:'uploading',created_by:actor.id,created_at:time,_version:1};
  }else{
   const matches=tables.files.filter(f=>f.id===c.fileId);fail(matches.length===1,'FILE_NOT_FOUND',404);const old=matches[0];
   fail(old.created_by===actor.id&&(actor.role==='admin'||old.hospital_id===actor.hospital_id),'FILE_ACCESS_DENIED',403);

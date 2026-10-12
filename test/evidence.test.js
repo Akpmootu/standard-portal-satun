@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,createHash} from 'node:crypto';
 import {writeFixture} from './fixtures/mou-write-data.js';
-import {planEvidence} from '../src/evidence-rules.js';
+import {planEvidence,normalizeEvidenceCommand} from '../src/evidence-rules.js';
+import {MAX_IMAGE_BYTES,imageMime,evidenceSignature} from '../src/evidence-types.js';
 import {planMouWrite} from '../src/mou-write-rules.js';
 import {downloadEvidence,uploadContext} from '../src/evidence-http.js';
 import {evidenceDrive,validUploadLocation} from '../src/evidence-drive.js';
@@ -12,8 +13,33 @@ import {readConfig} from '../src/config.js';
 import {sessionCodec} from '../src/session.js';
 const admin={provider:'google',subject:'admin-sub'},hospital={provider:'google',subject:'hospital-sub'},sha='a'.repeat(64);
 const fixture=()=>({...writeFixture(),files:[]});
-const command=()=>({requestId:randomUUID(),action:'reserve',saveRequestId:randomUUID(),module:'mou',hospitalId:'09625',itemId:'1',fiscalYear:2569,progressVersion:1,filename:'หลักฐาน.pdf',size:10,sha256:sha,driveId:'privateDriveFileID123'});
+const command=()=>({requestId:randomUUID(),action:'reserve',saveRequestId:randomUUID(),module:'mou',hospitalId:'09625',itemId:'1',fiscalYear:2569,progressVersion:1,filename:'หลักฐาน.jpg',size:12,sha256:sha,driveId:'privateDriveFileID123'});
 function commit(t,p){for(const c of p.changes){const key=c.table==='write_requests'?'request_id':'id',i=t[c.table].findIndex(r=>r[key]===c.record[key]);if(i<0)t[c.table].push(c.record);else t[c.table][i]=c.record;}}
+test('new evidence accepts bounded images and rejects PDF uploads without changing legacy links',()=>{
+ for(const filename of ['proof.jpg','proof.JPEG','proof.png','proof.webp']){
+  const c={...command(),filename,size:MAX_IMAGE_BYTES},p=planEvidence(fixture(),admin,c,sha);
+  assert.equal(p.changes[0].record.mime_type,imageMime(filename));
+  assert.throws(()=>normalizeEvidenceCommand({...c,size:MAX_IMAGE_BYTES+1}),{code:'INVALID_FILE_SIZE'});
+ }
+ for(const filename of ['proof.pdf','proof.svg','proof.gif','proof.html','proof.jpg.exe','../proof.png'])assert.throws(()=>normalizeEvidenceCommand({...command(),filename}),{code:'IMAGE_REQUIRED'});
+ const t=fixture();t.mou_progress[0].evidence_link='https://drive.google.com/file/d/example/view';
+ const c={requestId:randomUUID(),action:'save',hospitalId:'09625',itemId:'1',fiscalYear:2569,expectedVersion:1,status:'completed',detail:'เอกสารใน Drive',evidenceLink:t.mou_progress[0].evidence_link};
+ assert.equal(planMouWrite(t,admin,c,sha).next.evidence_link,c.evidenceLink);
+});
+
+test('image chunks check real signatures, MIME and size before sending any bytes to Drive',async()=>{
+ let calls=0;const drive=evidenceDrive({storage:{},evidence:{}},{request:async o=>{calls++;assert.equal(o.headers['Content-Type'],'image/png');return {status:200};}});
+ const location='https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=x';
+ const png=Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0]);
+ assert.equal(evidenceSignature(png,'image/png'),true);assert.equal(evidenceSignature(png,'image/jpeg'),false);
+ await assert.rejects(drive.chunk(location,Buffer.from('not an image'),0,12,'image/png'),{code:'INVALID_FILE_CONTENT'});
+ await assert.rejects(drive.chunk(location,png,0,MAX_IMAGE_BYTES+1,'image/png'),{code:'INVALID_UPLOAD_CHUNK'});assert.equal(calls,0);
+ assert.deepEqual(await drive.chunk(location,png,0,png.length,'image/png'),{nextOffset:12,complete:true});assert.equal(calls,1);
+ assert.equal(evidenceSignature(Buffer.from([255,216,255,0]),'image/jpeg'),true);
+ assert.equal(evidenceSignature(Buffer.from('RIFFxxxxWEBP'),'image/webp'),true);
+ assert.equal(evidenceSignature(Buffer.from('RIFFxxxxNOPE'),'image/webp'),false);
+});
+
 test('reserved file cannot satisfy evidence until verified and remains bound to actor, unit and record',()=>{
  const t=fixture(),c=command();commit(t,planEvidence(t,admin,c,sha));const file=t.files[0];
  const save={requestId:c.saveRequestId,action:'save',hospitalId:'09625',itemId:'1',fiscalYear:2569,expectedVersion:1,status:'completed',detail:'ผลจริง',evidenceLink:'',evidenceFileId:file.id};
