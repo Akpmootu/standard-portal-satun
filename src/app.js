@@ -3,7 +3,7 @@ import migrationCatalog from './migration-resources.json' with {type:'json'};
 import {migrationReader,archivePage,resourcesPage,libraryFile,requireArchiveAdmin} from './migration-library.js';
 import {evidenceResponse} from './evidence-response.js';
 import {assistantPage,integrationsPage} from './integration-page.js';
-import {integrationClient,integrationReports,integrationHash,summaryMessage,eventNotice,scheduledNotices} from './integrations.js';
+import {integrationClient,integrationReports,integrationHash,summaryMessage,eventNotice,scheduledNotices,confirmScheduledDuplicates} from './integrations.js';
 import {serviceSlot} from './service-rules.js';
 import {currentFiscalYear} from './mou-read.js';
 import {privacyPage} from './privacy-page.js';
@@ -64,6 +64,7 @@ export function createApp(config, dependencies = {}) {
   const writer = dependencies.writer || mouWriterClient(config);
   const drive = dependencies.drive || evidenceDrive(config);
   const integrations=dependencies.integrations||integrationClient(config,writer);
+  const cronLog=record=>{try{(dependencies.cronLog||((r)=>console.info(JSON.stringify(r))))(record);}catch{/* Logging must not trigger a second delivery. */}};
   const catalog=dependencies.migrationCatalog||migrationCatalog;
   const archive=dependencies.archive||migrationReader(config,catalog);
   const resourceDrive=dependencies.resourceDrive||evidenceDrive({...config,evidenceFolderId:catalog.assetFolderId});
@@ -127,7 +128,14 @@ export function createApp(config, dependencies = {}) {
         fail(config.telegram?.enabled&&config.telegram?.confirmed,'TELEGRAM_NOT_ENABLED',503);
         const links=(await store.table('identities')).filter(i=>i.provider==='google'&&i.email===config.ownerEmail&&i.status==='active');fail(links.length===1,'CRON_OWNER_NOT_APPROVED',403);
         const owner={provider:'google',subject:links[0].provider_subject},access=await resolveAccess(owner,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);
-        return json(200,{ok:true,results:await scheduledNotices({client:integrations,store,identity:owner,access,deadline:config.telegram.deadline})});
+        const startedAt=new Date().toISOString(),slot=serviceSlot('daily',new Date(startedAt));
+        cronLog({event:'portal_cron',phase:'started',slot,startedAt});
+        let results;
+        try{results=await scheduledNotices({client:integrations,store,identity:owner,access,deadline:config.telegram.deadline,now:new Date(startedAt)});results=await confirmScheduledDuplicates(results,store,new Date(startedAt));}
+        catch{cronLog({event:'portal_cron',phase:'failed',slot,startedAt,finishedAt:new Date().toISOString(),reason:'SUMMARY_UNAVAILABLE'});return json(503,{ok:false,error:'SCHEDULED_SUMMARY_UNAVAILABLE'});}
+        const failed=results.filter(r=>r.error&&r.error!=='SERVICE_ALREADY_RESERVED').length;
+        cronLog({event:'portal_cron',phase:'finished',slot,startedAt,finishedAt:new Date().toISOString(),sent:results.filter(r=>r.ok===true&&!r.error).length,skipped:results.filter(r=>r.error==='SERVICE_ALREADY_RESERVED').length,failed});
+        return json(failed?503:200,{ok:failed===0,results});
       }
       if(req.method==='POST'&&['/api/integrations/ai','/api/integrations/telegram'].includes(url.pathname)){
         fail(identity,'SIGN_IN_REQUIRED',401);fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);

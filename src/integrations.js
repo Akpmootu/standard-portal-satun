@@ -53,3 +53,15 @@ export async function eventNotice(client,identity,command,module){
 }
 export function cronKinds(now,deadline){const d=new Date(now.getTime()+7*3600000),kinds=['daily'];if(d.getUTCDay()===1)kinds.push('weekly');if(/^\d{4}-\d{2}-\d{2}$/.test(deadline||'')){const days=Math.round((Date.parse(deadline+'T00:00:00Z')-Date.parse(serviceSlot('daily',now)+'T00:00:00Z'))/86400000);if([30,14,7,3,1].includes(days))kinds.push('deadline');}return kinds;}
 export async function scheduledNotices({client,store,identity,access,deadline,now=new Date()}){const reports=await integrationReports(store,access,currentFiscalYear(now)),results=[];for(const kind of cronKinds(now,deadline)){try{results.push({kind,...await client.send({identity,kind,slot:serviceSlot(kind,now),text:summaryMessage(reports,kind,now,deadline)})});}catch(e){results.push({kind,error:e instanceof PortalError?e.code:'SERVICE_UNAVAILABLE'});}}return results;}
+// A reserved slot alone does not prove delivery: it may have an uncertain outcome.
+export async function confirmScheduledDuplicates(results,store,now=new Date()){
+ if(!results.some(r=>r.error==='SERVICE_ALREADY_RESERVED'))return results;
+ const audit=await store.table('audit_log');
+ const metadata=r=>{try{return JSON.parse(r.changed_fields);}catch{return null;}};
+ return results.map(r=>{
+  if(r.error!=='SERVICE_ALREADY_RESERVED')return r;
+  const reservations=audit.filter(a=>a.record_type==='service'&&a.action==='telegram'&&metadata(a)?.kind===r.kind&&metadata(a)?.slot===serviceSlot(r.kind,now));
+  const settlements=reservations.length===1?audit.filter(a=>a.record_type==='service'&&a.action==='settle'&&a.record_id===reservations[0].id):[];
+  return settlements.length===1&&metadata(settlements[0])?.outcome==='sent'?{...r,deliveryVerified:true}:{...r,error:'SCHEDULED_DELIVERY_UNCONFIRMED'};
+ });
+}
