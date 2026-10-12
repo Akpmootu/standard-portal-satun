@@ -4,7 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {writeFixture} from './fixtures/mou-write-data.js';
 import {planManagement} from '../src/management-rules.js';
 import {writeActor} from '../src/mou-write-rules.js';
-import {loadReport,reportCsv} from '../src/reports.js';
+import {loadReport,reportPage,reportCsv} from '../src/reports.js';
 import {planMigration} from '../src/migration-rules.js';
 import {mouDeltaPlan} from '../src/mou-delta-plan.js';
 function data(){const t=writeFixture();for(const u of t.users)Object.assign(u,{_version:1,_request_id:'fixture'});for(const i of t.identities)i._version=1;for(const r of t.mou_settings)r._version=1;return {...t,announcements:[],notifications:[],rg12_comments:[],rg12_chapters:[{id:'1',chapter_number:1,title:'test',sort_order:1}]};}
@@ -43,6 +43,22 @@ test('report export excludes other hospitals and neutralizes spreadsheet formula
  assert.equal(m.results.length,1);assert.equal(m.results[0].records.length,1);const csv=reportCsv(m);assert.ok(csv.startsWith('\uFEFF'));assert.ok(csv.includes("'=HYPERLINK"));assert.ok(!csv.includes('09611'));
  await assert.rejects(loadReport(store,{status:'active',user:{id:'u1',role:'hospital',hospitalId:'09625'}},{hospitalId:'09611'}),{code:'HOSPITAL_ACCESS_DENIED'});
 });
+test('selected-unit report keeps its validated filter when refreshing or exporting every module',async()=>{
+ const t=data(),store={table:async n=>t[n],directory:async ids=>ids.map(id=>({id,name:'หน่วย '+id}))};
+ const m=await loadReport(store,{status:'active',user:{id:'u2',role:'admin'}},{module:'mou',year:2569,hospitalId:'09625'});
+ assert.equal(m.hospitalId,'09625');assert.equal(m.results.length,1);
+ for(const module of ['mou','ctam','hait']){
+  const html=reportPage({...m,module});
+  assert.match(html,/<input type="hidden" name="hospital_id" value="09625">/);
+  const href=html.match(/href="(\/reports\.csv\?[^"]+)"/)[1];
+  const url=new URL(href,'https://portal.example');
+  assert.equal(url.searchParams.get('hospital_id'),'09625');assert.equal(url.searchParams.get('module'),module);
+  if(module==='mou')assert.equal(url.searchParams.get('year'),'2569');
+ }
+ const all=await loadReport(store,{status:'active',user:{id:'u2',role:'admin'}},{module:'mou',year:2569});
+ assert.equal(all.hospitalId,'');assert.ok(!reportPage(all).includes('name="hospital_id"'));
+});
+
 test('migration preserves native edits, imports under version checks, and cannot overwrite them',()=>{
  const t=data(),raw={...t.mou_progress[0],id:'1',admin_reviewed_by:'ผู้ตรวจ',updated_by:'1'},source={format:'standard-portal-mou-all-v1',source:{host:'192.168.0.44',read_only:true},tables:{mou_progress:[raw]}};
  raw.assessment_detail='changed';t.mou_progress[0]._version=2;assert.equal(mouDeltaPlan(source,t).summary.preservedConflicts,1);
