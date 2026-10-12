@@ -1,0 +1,371 @@
+{
+  "archive": {
+    "spreadsheetId": "1IKnC8r876AOPQEIT3BjD3jT7BvxrLU1PYkA_QJFlBn8",
+    "capturedAt": "2026-10-12T04:21:03+00:00",
+    "modifiedTime": "2026-10-12T04:38:01.459Z",
+    "verified": true,
+    "cells": 1206314,
+    "rows": 45880,
+    "tables": {
+      "announcements": {
+        "rows": 0,
+        "headers": [
+          "id",
+          "title",
+          "message",
+          "link_url",
+          "link_text",
+          "is_active",
+          "created_at",
+          "updated_at"
+        ]
+      },
+      "c_hosoffice": {
+        "rows": 43613,
+        "headers": [
+          "ชื่อ",
+          "hoscode9new",
+          "รหัส 9 หลัก",
+          "hoscode",
+          "เลขอนุญาตให้ประกอบสถานบริการสุขภาพ 11 หลัก",
+          "ประเภทองค์กร",
+          "ประเภทหน่วยบริการสุขภาพ",
+          "สังกัด",
+          "แผนก/กรม",
+          "ระดับโรงพยาบาล",
+          "ประเภทลูกข่าย",
+          "เตียงที่ใช้จริง",
+          "สถานะการใช้งาน",
+          "zone",
+          "ที่อยู่",
+          "รหัสจังหวัด",
+          "country",
+          "รหัสอำเภอ",
+          "อำเภอ/เขต",
+          "รหัสตำบล",
+          "ตำบล/แขวง",
+          "หมู่",
+          "รหัสไปรษณีย์",
+          "แม่ข่าย",
+          "วันที่ก่อตั้ง",
+          "วันที่ปิดบริการ",
+          "อัพเดตล่าสุด(เริ่ม 05/09/2566)"
+        ]
+      },
+      "ctam_items": {
+        "rows": 17,
+        "headers": [
+          "id",
+          "item_number",
+          "title",
+          "title_en",
+          "description",
+          "sort_order",
+          "created_at"
+        ]
+      },
+      "ctam_progress": {
+        "rows": 102,
+        "headers": [
+          "id",
+          "hospital_id",
+          "item_id",
+          "responsible_person",
+          "assessment_detail",
+          "evidence_type",
+          "evidence_file",
+          "evidence_link",
+          "updated_at",
+          "updated_by",
+          "status",
+          "admin_status",
+          "admin_comment",
+          "admin_reviewed_at",
+          "admin_reviewed_by"
+        ]
+      },
+      "ctam_review_history": {
+        "rows": 104,
+        "headers": [
+          "id",
+          "progress_id",
+          "admin_status",
+          "admin_comment",
+          "admin_reviewed_by",
+          "created_at"
+        ]
+      },
+      "hait_chapters": {
+        "rows": 9,
+        "headers": [
+          "id",
+          "code",
+          "title",
+          "sort_order"
+        ]
+      },
+      "hait_responsibles": {
+        "rows": 1,
+        "headers": [
+          "id",
+          "hospital_id",
+          "chapter_id",
+          "full_name",
+          "position",
+          "phone",
+          "email",
+          "created_at"
+        ]
+      },
+      "hait_status": {
+        "rows": 2,
+        "headers": [
+          "id",
+          "hospital_id",
+          "chapter_id",
+          "status",
+          "percent_complete",
+          "planned_finish",
+          "actual_finish",
+          "obstacles",
+          "updated_by",
+          "updated_at"
+        ]
+      },
+      "hospitals": {
+        "rows": 6,
+        "headers": [
+          "id",
+          "code",
+          "name",
+          "lead_full_name",
+          "lead_position",
+          "lead_phone",
+          "lead_email",
+          "lead_updated_at",
+          "coordinator_name",
+          "coordinator_phone",
+          "coordinator_email"
+        ]
+      },
+      "mou_categories": {
+        "rows": 6,
+        "headers": [
+          "id",
+          "category_number",
+          "title",
+          "sort_order"
+        ]
+      },
+      "mou_items": {
+        "rows": 38,
+        "headers": [
+          "id",
+          "category_id",
+          "item_number",
+          "title",
+          "target_group",
+          "period",
+          "sort_order"
+        ]
+      },
+      "mou_progress": {
+        "rows": 1355,
+        "headers": [
+          "id",
+          "hospital_id",
+          "item_id",
+          "fiscal_year",
+          "status",
+          "assessment_detail",
+          "evidence_type",
+          "evidence_file",
+          "evidence_link",
+          "admin_status",
+          "admin_comment",
+          "admin_reviewed_at",
+          "admin_reviewed_by",
+          "updated_at",
+          "updated_by"
+        ]
+      },
+      "mou_review_history": {
+        "rows": 95,
+        "headers": [
+          "id",
+          "progress_id",
+          "admin_status",
+          "admin_comment",
+          "admin_reviewed_by",
+          "created_at"
+        ]
+      },
+      "mou_settings": {
+        "rows": 2,
+        "headers": [
+          "id",
+          "setting_key",
+          "setting_value",
+          "label",
+          "updated_at",
+          "updated_by"
+        ]
+      },
+      "notifications": {
+        "rows": 369,
+        "headers": [
+          "id",
+          "user_id",
+          "hospital_id",
+          "type",
+          "title",
+          "message",
+          "related_type",
+          "related_item_id",
+          "is_read",
+          "created_at"
+        ]
+      },
+      "rg12_chapters": {
+        "rows": 7,
+        "headers": [
+          "id",
+          "chapter_number",
+          "title",
+          "sort_order",
+          "created_at"
+        ]
+      },
+      "rg12_comments": {
+        "rows": 0,
+        "headers": [
+          "id",
+          "hospital_id",
+          "chapter_id",
+          "comment_text",
+          "needs_provincial_help",
+          "admin_response",
+          "created_at",
+          "updated_at",
+          "admin_responded_at",
+          "admin_responded_by"
+        ]
+      },
+      "rg12_progress": {
+        "rows": 34,
+        "headers": [
+          "id",
+          "hospital_id",
+          "sub_item_id",
+          "is_completed",
+          "status",
+          "responsible_person",
+          "assessment_detail",
+          "evidence_type",
+          "evidence_file",
+          "evidence_link",
+          "admin_status",
+          "admin_comment",
+          "admin_reviewed_at",
+          "admin_reviewed_by",
+          "updated_at",
+          "updated_by"
+        ]
+      },
+      "rg12_sub_items": {
+        "rows": 44,
+        "headers": [
+          "id",
+          "chapter_id",
+          "item_text",
+          "sort_order"
+        ]
+      },
+      "users": {
+        "rows": 76,
+        "headers": [
+          "id",
+          "username",
+          "role",
+          "user_group",
+          "last_login_at",
+          "hospital_id",
+          "created_at"
+        ]
+      }
+    },
+    "unresolvedNotificationOwners": 179
+  },
+  "assetFolderId": "1lwJ0FiYfvDcwUlOOD3vTqzQbdzh9OtSP",
+  "files": [
+    {
+      "id": "resource-pcu-guideline",
+      "slug": "pcu-guideline",
+      "drive_file_id": "1JCsd6SUmA-RxvNIh_SAu5ayGLlkYdT0F",
+      "original_filename": "pcu-guideline.pdf",
+      "mime_type": "application/pdf",
+      "size_bytes": 3130460,
+      "sha256": "7c914316c66d063e37a2b30f8a6dd83e0fb2729ddb11a8cbed380576fb230e46",
+      "sourcePaths": [
+        "assets/docs/คู่มือมาตรฐานหน่วยบริการปฐมภูมิ 68-70 V.2.pdf"
+      ]
+    },
+    {
+      "id": "resource-ctam-guideline",
+      "slug": "ctam-guideline",
+      "drive_file_id": "1PQshokzvwy9chm6OTNup6tWHRRs2atkf",
+      "original_filename": "ctam-guideline.pdf",
+      "mime_type": "application/pdf",
+      "size_bytes": 346250,
+      "sha256": "4c984ff51d02ded7c1cabcc9d1e92b71e04600a90dfcbfc7b1f02b628497dafd",
+      "sourcePaths": [
+        "assets/docs/ctam_guideline.pdf",
+        "คู่มือการตรวจประเมินระดับการรักษาความมั.pdf"
+      ]
+    },
+    {
+      "id": "resource-logo",
+      "slug": "logo",
+      "drive_file_id": "1jMZazJnnohriBWmw5P-ysNElj6o6EeBj",
+      "original_filename": "logo.png",
+      "mime_type": "image/png",
+      "size_bytes": 132161,
+      "sha256": "2a18f1a179a662c214baefaa8cdd131f04a049ba87515e1788f170a23b7d89f2",
+      "sourcePaths": [
+        "assets/images/logo.png"
+      ]
+    },
+    {
+      "id": "resource-favicon",
+      "slug": "favicon",
+      "drive_file_id": "1tfjvbBaNZlzIxddtbmxl6Auus7WzdsMM",
+      "original_filename": "favicon.png",
+      "mime_type": "image/png",
+      "size_bytes": 495783,
+      "sha256": "ccd3791b16a028a80a8a42551e3b4bad83958ef72ce66980cbbdf6651d9ed422",
+      "sourcePaths": [
+        "assets/images/favicon.png"
+      ]
+    },
+    {
+      "id": "resource-home-hero",
+      "slug": "home-hero",
+      "drive_file_id": "1GBLlAHdJyxAFQGp8hpCTn84HemPC81wS",
+      "original_filename": "home-hero.png",
+      "mime_type": "image/png",
+      "size_bytes": 1852753,
+      "sha256": "cd102110d79654490e7f8f33735386e0e5859299f6bf73aaa32ef7d579fe435b",
+      "sourcePaths": [
+        "assets/images/home-hero-digital-health.png"
+      ]
+    }
+  ],
+  "originalSnapshot": {
+    "id": "1yj2WxA0YBolLhXzZ82cDXa6uh-UET12G",
+    "bytes": 26062018,
+    "sha256": "6b35e885daf89daf7de48fc6ece2ac34e5542ef603b2494bbf2fb77a377a8be0",
+    "private": true,
+    "verified": true
+  },
+  "encryptedBackupFileId": "1sgqAO0NcNbOxjT0qj2uwSZ8unR36zraJ"
+}

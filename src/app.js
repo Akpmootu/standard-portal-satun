@@ -1,3 +1,5 @@
+import migrationCatalog from './migration-resources.json' with {type:'json'};
+import {migrationReader,archivePage,resourcesPage,libraryFile,requireArchiveAdmin} from './migration-library.js';
 import {evidenceResponse} from './evidence-response.js';
 import {assistantPage,integrationsPage} from './integration-page.js';
 import {integrationClient,integrationReports,integrationHash,summaryMessage,eventNotice,scheduledNotices} from './integrations.js';
@@ -61,6 +63,9 @@ export function createApp(config, dependencies = {}) {
   const writer = dependencies.writer || mouWriterClient(config);
   const drive = dependencies.drive || evidenceDrive(config);
   const integrations=dependencies.integrations||integrationClient(config,writer);
+  const catalog=dependencies.migrationCatalog||migrationCatalog;
+  const archive=dependencies.archive||migrationReader(config,catalog);
+  const resourceDrive=dependencies.resourceDrive||evidenceDrive({...config,evidenceFolderId:catalog.assetFolderId});
   const notifyEvent=async(identity,command,module)=>{if(config.telegram?.enabled&&config.telegram?.confirmed)await eventNotice(integrations,identity,command,module).catch(()=>{});};
   const ready = readiness(config);
   return async function handle(req, res) {
@@ -197,6 +202,13 @@ export function createApp(config, dependencies = {}) {
         const result=await writer.execute(identity,command);await notifyEvent(identity,command,'mou');return json(200,result);
       }
       if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return json(405, { error: 'WRITES_DISABLED' }); }
+      if(url.pathname==='/resources'||url.pathname.startsWith('/resources/')||url.pathname==='/admin/archive'){
+        if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        if(url.pathname.startsWith('/resources/')){const file=libraryFile(catalog,access,url.pathname.slice('/resources/'.length));return evidenceResponse(res,file,await resourceDrive.download(file));}
+        let body;if(url.pathname==='/admin/archive'){requireArchiveAdmin(access);const name=one(url.searchParams,'table')||'hait_chapters',page=Number(one(url.searchParams,'page')||'1');body=archivePage(catalog,await archive.read(access,name,page));}else body=resourcesPage(catalog,access);
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
+      }
       if(url.pathname.startsWith('/evidence/')){
         if(!identity)return redirect('/');fail(config.evidence.refreshToken,'EVIDENCE_DOWNLOAD_DISABLED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
         const {file,bytes}=await downloadEvidence({fileId:url.pathname.slice('/evidence/'.length),access,store,drive});return evidenceResponse(res,file,bytes);
