@@ -20,6 +20,9 @@ export function readConfig(env = process.env) {
     ownerEmail: env.GOOGLE_OWNER_EMAIL || 'dh.satun@gmail.com',
     writer:{enabled:env.MOU_WRITES_ENABLED==='1',url:env.MOU_WRITER_URL||'',secret:env.MOU_WRITER_SECRET||''},
     moduleWrites:env.MODULE_WRITES_ENABLED==='1',
+    ai:{enabled:env.AI_ENABLED==='1',freeConfirmed:env.AI_FREE_CONFIRMED==='1',key:env.MISTRAL_API_KEY||''},
+    telegram:{enabled:env.TELEGRAM_ENABLED==='1',confirmed:env.TELEGRAM_DESTINATION_CONFIRMED==='1',token:env.TELEGRAM_BOT_TOKEN||'',chatId:env.TELEGRAM_CHAT_ID||'',botName:env.TELEGRAM_BOT_NAME||'',chatTitle:env.TELEGRAM_CHAT_TITLE||'',deadline:env.ASSESSMENT_DEADLINE||''},
+    cronSecret:env.CRON_SECRET||'',
     evidence:{enabled:env.EVIDENCE_WRITES_ENABLED==='1',refreshToken:env.GOOGLE_EVIDENCE_REFRESH_TOKEN||''},
     applicationSheetId: env.GOOGLE_APP_SHEET_ID || '1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k',
     referenceSheetId: env.GOOGLE_REFERENCE_SHEET_ID || '10UtjMGPnBKeMasgtrwYs3SPbqSu-f_RIhPU2tHYAaJw',
@@ -57,6 +60,8 @@ export async function loadLocalEnvironment(directory = process.cwd(), environmen
   const writer = await optionalJson(resolve(directory, '.secrets/mou-writer.json'));
   const evidence = await optionalJson(resolve(directory, '.secrets/google-evidence-token.json'));
   const evidenceFolder = await optionalJson(resolve(directory, '.secrets/evidence-folder.json'));
+  const integrations = await optionalJson(resolve(directory, '.secrets/integrations.json'));
+  if(integrations){env.MISTRAL_API_KEY ||= integrations.mistralKey;env.TELEGRAM_BOT_TOKEN ||= integrations.telegramToken;env.TELEGRAM_CHAT_ID ||= integrations.telegramChatId;}
   if(evidence){fail(evidence.ownerEmail===(env.GOOGLE_OWNER_EMAIL||'dh.satun@gmail.com'),'WRONG_TOKEN_OWNER');env.GOOGLE_EVIDENCE_REFRESH_TOKEN ||= evidence.refreshToken;}
   if(evidenceFolder)env.GOOGLE_EVIDENCE_FOLDER_ID ||= evidenceFolder.id;
   if(writer){env.MOU_WRITER_URL ||= writer.url;env.MOU_WRITER_SECRET ||= writer.secret;}

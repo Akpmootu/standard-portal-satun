@@ -3,6 +3,7 @@ import {normalizeModuleCommand} from './module-rules.js';
 import {normalizeManagementCommand} from './management-rules.js';
 import {normalizeMigrationCommand} from './migration-rules.js';
 import {normalizeEvidenceCommand} from './evidence-rules.js';
+import {normalizeServiceCommand} from './service-rules.js';
 import {createHmac} from 'node:crypto';
 import {fail,PortalError} from './errors.js';
 import {normalizeMouCommand} from './mou-write-rules.js';
@@ -10,7 +11,7 @@ export function writerConfigured(config){return Boolean(config.writer?.enabled&&
 export function mouWriterClient(config,fetcher=fetch){
   return {async execute(identity,input,operation){
     fail(writerConfigured(config),'WRITES_DISABLED');
-    const command=operation==='registration'?normalizeRegistrationCommand(input):operation==='assessment'?normalizeModuleCommand(input):operation==='management'?normalizeManagementCommand(input):operation==='migration'?normalizeMigrationCommand(input):operation==='evidence'?normalizeEvidenceCommand(input):normalizeMouCommand(input);
+    const command=operation==='service'?normalizeServiceCommand(input):operation==='registration'?normalizeRegistrationCommand(input):operation==='assessment'?normalizeModuleCommand(input):operation==='management'?normalizeManagementCommand(input):operation==='migration'?normalizeMigrationCommand(input):operation==='evidence'?normalizeEvidenceCommand(input):normalizeMouCommand(input);
     const payload=JSON.stringify({v:2,audience:'standard-portal-mou-writer',timestamp:Date.now(),identity:{provider:identity.provider,subject:identity.subject,...(operation==='registration'?{email:identity.email}:{})},command,...(operation?{operation}:{})});
     const signature=createHmac('sha256',config.writer.secret).update(payload).digest('hex');
     try{
@@ -32,8 +33,9 @@ export function mouWriterClient(config,fetcher=fetch){
       const allowed=['REGISTRATION_EXISTS','REGISTRATION_NOT_FOUND','REGISTRATION_ALREADY_DECIDED','EXISTING_ACCOUNT_REVIEW_REQUIRED','REVIEW_PROFILE_EXISTS','INVALID_REGISTRATION','REVIEW_SCOPE_REQUIRED','REJECTION_NOTE_REQUIRED','REVIEW_PROFILE_REQUIRED','INVALID_REVIEW_PROFILE','REVIEW_SCOPE_DENIED','REVIEWER_SAVE_DENIED','VERSION_CONFLICT','REQUEST_ID_REUSED','WRITER_BUSY','COMMIT_UNCERTAIN','WRITES_DISABLED','ASSESSMENT_LOCKED','APPROVAL_REQUIRED','ACCOUNT_DISABLED','HOSPITAL_ACCESS_DENIED','ADMIN_REQUIRED','ASSESSMENT_DETAIL_REQUIRED','EVIDENCE_REQUIRED','AGENCY_NOT_CONFIRMED','PROGRESS_NOT_FOUND','ITEM_NOT_FOUND'];
       allowed.push('RESPONSIBLE_PERSON_REQUIRED','HOSPITAL_ONLY','INVALID_MODULE_STATUS','INVALID_EVIDENCE_LINK','REJECTION_NOTE_REQUIRED','INVALID_MANAGEMENT_COMMAND','INVALID_MANAGEMENT_FIELD','MANAGEMENT_RECORD_NOT_FOUND','SELF_ADMIN_CHANGE_DENIED','LAST_ADMIN_REQUIRED','NOTIFICATION_ACCESS_DENIED');
       allowed.push('INVALID_EVIDENCE_COMMAND','INVALID_FILE_ID','FILE_NOT_FOUND','FILE_ACCESS_DENIED','FILE_ALREADY_EXISTS','FILE_STATE_CONFLICT','UPLOAD_LIMIT_REACHED','PDF_REQUIRED','INVALID_FILE_SIZE','SAVE_REQUEST_ALREADY_COMMITTED');
+      allowed.push('AI_DAILY_LIMIT','SERVICE_ALREADY_RESERVED','SERVICE_ALREADY_SETTLED','SERVICE_RESERVATION_NOT_FOUND','INVALID_SERVICE_COMMAND','INVALID_SERVICE_SLOT','INVALID_EVENT_SOURCE','MODULE_SCOPE_REQUIRED','HOSPITAL_REQUIRED');
       const code=allowed.includes(result.error)?result.error:'WRITER_UNAVAILABLE';
-      throw new PortalError(code,['VERSION_CONFLICT','REQUEST_ID_REUSED','AGENCY_NOT_CONFIRMED','FILE_STATE_CONFLICT','FILE_ALREADY_EXISTS','SAVE_REQUEST_ALREADY_COMMITTED'].includes(code)?409:['ASSESSMENT_LOCKED','APPROVAL_REQUIRED','ACCOUNT_DISABLED','HOSPITAL_ACCESS_DENIED','ADMIN_REQUIRED','FILE_ACCESS_DENIED','REVIEWER_SAVE_DENIED'].includes(code)?403:['ASSESSMENT_DETAIL_REQUIRED','EVIDENCE_REQUIRED','PDF_REQUIRED','INVALID_FILE_SIZE','INVALID_EVIDENCE_COMMAND','INVALID_FILE_ID'].includes(code)?400:503);
+      throw new PortalError(code,code==='AI_DAILY_LIMIT'?429:['VERSION_CONFLICT','REQUEST_ID_REUSED','AGENCY_NOT_CONFIRMED','FILE_STATE_CONFLICT','FILE_ALREADY_EXISTS','SAVE_REQUEST_ALREADY_COMMITTED','SERVICE_ALREADY_RESERVED','SERVICE_ALREADY_SETTLED'].includes(code)?409:['ASSESSMENT_LOCKED','APPROVAL_REQUIRED','ACCOUNT_DISABLED','HOSPITAL_ACCESS_DENIED','ADMIN_REQUIRED','FILE_ACCESS_DENIED','REVIEWER_SAVE_DENIED','INVALID_EVENT_SOURCE','MODULE_SCOPE_REQUIRED','HOSPITAL_REQUIRED'].includes(code)?403:['ASSESSMENT_DETAIL_REQUIRED','EVIDENCE_REQUIRED','PDF_REQUIRED','INVALID_FILE_SIZE','INVALID_EVIDENCE_COMMAND','INVALID_FILE_ID'].includes(code)?400:503);
     }catch(error){if(error instanceof PortalError)throw error;throw new PortalError('WRITE_RESULT_UNKNOWN');}
   }};
 }

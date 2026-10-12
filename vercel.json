@@ -1,4 +1,26 @@
 {
-  "builds": [{ "src": "api/index.js", "use": "@vercel/node", "config": { "includeFiles": ["public/**"], "maxDuration": 60 } }],
-  "routes": [{ "src": "/(.*)", "dest": "/api/index.js" }]
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "public/**"
+        ],
+        "maxDuration": 60
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.js"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/integrations/cron",
+      "schedule": "0 2 * * *"
+    }
+  ]
 }

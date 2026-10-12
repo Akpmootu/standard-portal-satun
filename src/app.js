@@ -1,4 +1,8 @@
 import {evidenceResponse} from './evidence-response.js';
+import {assistantPage,integrationsPage} from './integration-page.js';
+import {integrationClient,integrationReports,integrationHash,summaryMessage,eventNotice,scheduledNotices} from './integrations.js';
+import {serviceSlot} from './service-rules.js';
+import {currentFiscalYear} from './mou-read.js';
 import {privacyPage} from './privacy-page.js';
 import {evidenceDrive} from './evidence-drive.js';
 import {startEvidence,uploadContext,downloadEvidence} from './evidence-http.js';
@@ -29,7 +33,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 function one(params, key) {
   fail(params.getAll(key).length <= 1, 'DUPLICATE_PARAMETER', 400);
   return params.get(key);
@@ -56,6 +60,8 @@ export function createApp(config, dependencies = {}) {
   const rootStore = dependencies.store || googleStore(config);
   const writer = dependencies.writer || mouWriterClient(config);
   const drive = dependencies.drive || evidenceDrive(config);
+  const integrations=dependencies.integrations||integrationClient(config,writer);
+  const notifyEvent=async(identity,command,module)=>{if(config.telegram?.enabled&&config.telegram?.confirmed)await eventNotice(integrations,identity,command,module).catch(()=>{});};
   const ready = readiness(config);
   return async function handle(req, res) {
     const store = rootStore.forRequest ? rootStore.forRequest() : rootStore;
@@ -110,6 +116,29 @@ export function createApp(config, dependencies = {}) {
         return redirect('/');
       }
       const identity = await codec.read('session', req.headers.cookie);
+      if(req.method==='GET'&&url.pathname==='/api/integrations/cron'){
+        fail(config.cronSecret&&equalToken(req.headers.authorization,'Bearer '+config.cronSecret),'CRON_ACCESS_DENIED',403);
+        fail(config.telegram?.enabled&&config.telegram?.confirmed,'TELEGRAM_NOT_ENABLED',503);
+        const links=(await store.table('identities')).filter(i=>i.provider==='google'&&i.email===config.ownerEmail&&i.status==='active');fail(links.length===1,'CRON_OWNER_NOT_APPROVED',403);
+        const owner={provider:'google',subject:links[0].provider_subject},access=await resolveAccess(owner,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);
+        return json(200,{ok:true,results:await scheduledNotices({client:integrations,store,identity:owner,access,deadline:config.telegram.deadline})});
+      }
+      if(req.method==='POST'&&['/api/integrations/ai','/api/integrations/telegram'].includes(url.pathname)){
+        fail(identity,'SIGN_IN_REQUIRED',401);fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);
+        const {csrf,...input}=await writeBody(req,6000);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
+        if(url.pathname.endsWith('/ai'))return json(200,await integrations.ask({identity,access,store,input}));
+        fail(access.user.role==='admin','ADMIN_REQUIRED',403);fail(Object.keys(input).sort().join('|')==='kind|previewHash|requestId|year'&&['daily','weekly','deadline','help'].includes(input.kind)&&Number.isInteger(input.year)&&input.year>=2500&&input.year<=2700,'INVALID_SERVICE_COMMAND',400);
+        fail(input.kind!=='deadline'||/^\d{4}-\d{2}-\d{2}$/.test(config.telegram.deadline||''),'DEADLINE_NOT_CONFIGURED',400);
+        const reports=await integrationReports(store,access,input.year),text=summaryMessage(reports,input.kind,new Date(),config.telegram.deadline);fail(input.previewHash===integrationHash(text),'PREVIEW_CHANGED',409);
+        return json(200,await integrations.send({identity,kind:input.kind,slot:serviceSlot(input.kind),text,requestId:input.requestId}));
+      }
+      if(req.method==='GET'&&['/assistant','/admin/integrations'].includes(url.pathname)){
+        if(!identity)return redirect('/');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        let body;if(url.pathname==='/assistant')body=assistantPage(access,identity.csrf,config);
+        else{fail(access.user.role==='admin','ADMIN_REQUIRED',403);const year=Number(one(url.searchParams,'year')||currentFiscalYear()),kind=one(url.searchParams,'kind')||'daily';fail(['daily','weekly','deadline','help'].includes(kind),'INVALID_SERVICE_COMMAND',400);const reports=await integrationReports(store,access,year);body=integrationsPage({csrf:identity.csrf,config,reports,kind,year,audit:await store.table('audit_log')});}
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
+      }
       if (req.method === 'POST' && url.pathname === '/auth/logout') {
         fail(req.headers.origin === config.origin, 'INVALID_ORIGIN', 403);
         fail(identity, 'SIGN_IN_REQUIRED', 401);
@@ -133,7 +162,7 @@ export function createApp(config, dependencies = {}) {
         const {csrf,...input}=await writeBody(req);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);const command=normalizeManagementCommand(input);
         fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
         fail(!['account','setting','announcement','response'].includes(command.action)||access.user.role==='admin','ADMIN_REQUIRED',403);
-        return json(200,await writer.execute(identity,command,'management'));
+        const result=await writer.execute(identity,command,'management');if(['comment','response'].includes(command.action))await notifyEvent(identity,command,'hait');return json(200,result);
       }
       if(req.method==='POST'&&url.pathname==='/api/assessment/write'){
         fail(config.moduleWrites&&writerConfigured(config),'WRITES_DISABLED');
@@ -142,7 +171,7 @@ export function createApp(config, dependencies = {}) {
         const command=normalizeModuleCommand(input);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
         const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
         requireModuleUnit({mou_agencies:await store.table('mou_agencies')},{role:access.user.role,hospital_id:access.user.hospitalId},command.module,command.hospitalId,command.action==='review');
-        return json(200,await writer.execute(identity,command,'assessment'));
+        const result=await writer.execute(identity,command,'assessment');await notifyEvent(identity,command,command.module);return json(200,result);
       }
       if(req.method==='POST'&&url.pathname==='/api/registration'){
         fail(writerConfigured(config),'WRITES_DISABLED');
@@ -165,7 +194,7 @@ export function createApp(config, dependencies = {}) {
         requireHospital(access,command.hospitalId,command.fiscalYear);
         if(command.action==='review'){requireReviewerScope(access.user,command.hospitalId,command.fiscalYear);reviewProfile(await store.table('reviewer_profiles'),access.user.id);}
         else fail(access.user.role!=='reviewer','REVIEWER_SAVE_DENIED',403);
-        return json(200,await writer.execute(identity,command));
+        const result=await writer.execute(identity,command);await notifyEvent(identity,command,'mou');return json(200,result);
       }
       if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return json(405, { error: 'WRITES_DISABLED' }); }
       if(url.pathname.startsWith('/evidence/')){

