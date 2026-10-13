@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createServer} from 'node:http';
+import {createServer,request as httpRequest} from 'node:http';
 import {createApp} from '../src/app.js';
 import {readConfig} from '../src/config.js';
 import {writeFixture} from './fixtures/mou-write-data.js';
@@ -14,8 +14,24 @@ async function setup(t,send,broken=false){
  const server=createServer(createApp(config,{store,integrations:{send},cronLog:r=>logs.push(r)}));
  await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>server.close());
  config.origin='http://127.0.0.1:'+server.address().port;
- return {logs,data,get:headers=>fetch(config.origin+'/api/integrations/cron',{headers})};
+ return {logs,data,config,get:headers=>fetch(config.origin+'/api/integrations/cron',{headers}),request:(path,headers,method='GET')=>new Promise((resolve,reject)=>{const req=httpRequest(config.origin+path,{headers,method},res=>{res.resume();res.on('end',()=>resolve({status:res.statusCode}));});req.on('error',reject);req.end();})};
 }
+test('production deployment cron host is accepted only for authenticated exact scheduled GET',async t=>{
+ let sends=0;const {config,request}=await setup(t,async()=>{sends++;return {ok:true};});
+ config.cronDeploymentHost='portal-immutable.vercel.app';
+ const valid={host:config.cronDeploymentHost,authorization:'Bearer TEST_ONLY_BEARER'},get=headers=>request('/api/integrations/cron',headers);
+ assert.equal((await get({host:config.cronDeploymentHost})).status,400);
+ assert.equal((await get({...valid,authorization:'Bearer wrong'})).status,400);
+ assert.equal((await get({...valid,host:'other.vercel.app'})).status,400);
+ for(const path of ['/','/auth/google','/api/integrations/cron?extra=1'])assert.equal((await request(path,valid)).status,400);
+ assert.equal((await request('/api/integrations/cron',valid,'POST')).status,400);
+ assert.equal(sends,0);
+ assert.equal((await get(valid)).status,200);assert.ok(sends>=1);
+ const env={SESSION_KEY_HEX:'a'.repeat(64),VERCEL_ENV:'production',VERCEL_URL:'portal-immutable.vercel.app'};
+ assert.equal(readConfig(env).cronDeploymentHost,env.VERCEL_URL);
+ assert.equal(readConfig({...env,VERCEL_ENV:'preview'}).cronDeploymentHost,'');
+ assert.equal(readConfig({...env,VERCEL_URL:'portal.vercel.app/evil'}).cronDeploymentHost,'');
+});
 test('cron records only aggregate timing and counts after authorized scheduled endpoint succeeds',async t=>{
  let sends=0;const {logs,get}=await setup(t,async()=>{sends++;return {ok:true,messageId:'PRIVATE_MESSAGE_ID'};});
  assert.equal((await get({})).status,403);assert.equal(logs.length,0);assert.equal(sends,0);
@@ -39,3 +55,4 @@ test('cron summary read failure is observable and hides private provider errors 
  const response=await get({authorization:'Bearer TEST_ONLY_BEARER'});assert.equal(response.status,503);assert.deepEqual(await response.json(),{ok:false,error:'SCHEDULED_SUMMARY_UNAVAILABLE'});
  assert.equal(sends,0);assert.equal(logs[1].phase,'failed');assert.ok(!JSON.stringify(logs).includes('PRIVATE_PROVIDER_DETAIL'));
 });
+

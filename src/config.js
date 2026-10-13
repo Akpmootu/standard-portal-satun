@@ -23,6 +23,7 @@ export function readConfig(env = process.env) {
     ai:{enabled:env.AI_ENABLED==='1',freeConfirmed:env.AI_FREE_CONFIRMED==='1',key:env.MISTRAL_API_KEY||''},
     telegram:{enabled:env.TELEGRAM_ENABLED==='1',confirmed:env.TELEGRAM_DESTINATION_CONFIRMED==='1',token:env.TELEGRAM_BOT_TOKEN||'',chatId:env.TELEGRAM_CHAT_ID||'',botName:env.TELEGRAM_BOT_NAME||'',chatTitle:env.TELEGRAM_CHAT_TITLE||'',deadline:env.ASSESSMENT_DEADLINE||''},
     cronSecret:env.CRON_SECRET||'',
+    cronDeploymentHost:env.VERCEL_ENV==='production'&&/^[a-z0-9-]+\.vercel\.app$/.test(env.VERCEL_URL||'')?env.VERCEL_URL:'',
     evidence:{enabled:env.EVIDENCE_WRITES_ENABLED==='1',refreshToken:env.GOOGLE_EVIDENCE_REFRESH_TOKEN||''},
     applicationSheetId: env.GOOGLE_APP_SHEET_ID || '1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k',
     referenceSheetId: env.GOOGLE_REFERENCE_SHEET_ID || '10UtjMGPnBKeMasgtrwYs3SPbqSu-f_RIhPU2tHYAaJw',

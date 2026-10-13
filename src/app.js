@@ -81,7 +81,10 @@ export function createApp(config, dependencies = {}) {
     function json(status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
     function redirect(location) { res.writeHead(303, { Location: location }); res.end(); }
     try {
-      fail(req.headers.host === new URL(config.origin).host, 'INVALID_HOST', 400);
+      // Vercel schedules against the immutable production deployment hostname.
+      // Permit only its exact cron path with the existing bearer; browser routes stay canonical.
+      const deploymentCron = config.cronDeploymentHost && req.headers.host===config.cronDeploymentHost && req.method==='GET' && req.url==='/api/integrations/cron' && config.cronSecret && equalToken(req.headers.authorization,'Bearer '+config.cronSecret);
+      fail(req.headers.host === new URL(config.origin).host || deploymentCron, 'INVALID_HOST', 400);
       fail(typeof req.url === 'string' && req.url.startsWith('/') && !req.url.startsWith('//'), 'INVALID_URL', 400);
       const url = new URL(req.url, config.origin);
       fail(url.origin === config.origin, 'INVALID_URL', 400);
