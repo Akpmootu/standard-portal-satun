@@ -36,7 +36,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['portal-layout.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 function one(params, key) {
   fail(params.getAll(key).length <= 1, 'DUPLICATE_PARAMETER', 400);
   return params.get(key);
@@ -356,3 +356,4 @@ export function createApp(config, dependencies = {}) {
     }
   };
 }
+
