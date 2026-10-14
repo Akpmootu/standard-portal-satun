@@ -26,7 +26,11 @@ async function fixture(t, overrides = {}) {
 test('unconfigured landing is readable and login is disabled', async t => {
   const { request } = await fixture(t, { noLogin: true });
   const res = await request('/');
-  assert.equal(res.status, 200); assert.match(await res.text(), /รอตั้งค่า Google OAuth/);
+  assert.equal(res.status, 200); assert.match(await res.text(), /รอตั้งค่า Google Login/);
+  assert.match(res.headers.get('content-security-policy'),/font-src 'self'/);
+  for(const [path,type] of [['/satun-coast.webp','image/webp'],['/satun-thai.woff2','font/woff2'],['/satun-latin.woff2','font/woff2']]){
+    const asset=await request(path);assert.equal(asset.status,200);assert.equal(asset.headers.get('content-type'),type);assert.ok((await asset.arrayBuffer()).byteLength>1000);
+  }
   assert.equal((await request('/auth/google')).status, 503);
   assert.equal((await request('/api/health')).status, 200);
 });
@@ -203,3 +207,4 @@ test('read-only workspaces reject duplicate parameters and mutations',async t=>{
   for(const method of ['POST','PUT','DELETE'])assert.equal((await request(route,{headers,method})).status,405);
  }
 });
+

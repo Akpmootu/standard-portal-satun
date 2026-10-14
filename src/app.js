@@ -36,7 +36,12 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const landingAssets=new Map([
+ ['/satun-coast.webp',{type:'image/webp',body:readFile(new URL('../public/satun-coast.webp',import.meta.url))}],
+ ['/satun-thai.woff2',{type:'font/woff2',body:readFile(new URL('../public/satun-thai.woff2',import.meta.url))}],
+ ['/satun-latin.woff2',{type:'font/woff2',body:readFile(new URL('../public/satun-latin.woff2',import.meta.url))}],
+]);
 function one(params, key) {
   fail(params.getAll(key).length <= 1, 'DUPLICATE_PARAMETER', 400);
   return params.get(key);
@@ -92,6 +97,9 @@ export function createApp(config, dependencies = {}) {
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyPage());
       }
       if (req.method === 'GET' && url.pathname === '/api/health') return json(200, { service: 'standard-portal', mode: writerConfigured(config)?'mou-write-staging':'read-only-staging', liveMigration: false });
+      if(req.method==='GET'&&landingAssets.has(url.pathname)){
+        const asset=landingAssets.get(url.pathname);res.writeHead(200,{'Content-Type':asset.type,'Cache-Control':'public, max-age=3600'});return res.end(await asset.body);
+      }
       if (req.method === 'GET' && url.pathname === '/styles.css') {
         res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' }); return res.end(await style);
       }
@@ -333,7 +341,7 @@ export function createApp(config, dependencies = {}) {
             try { access = await resolveAccess(identity, store); } catch { /* Fail closed while keeping logout usable. */ }
           }
         }
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         return res.end(page({ ...ready, identity, access, writeEnabled:writerConfigured(config), csrf: identity?.csrf }));
       }
@@ -359,4 +367,5 @@ export function createApp(config, dependencies = {}) {
     }
   };
 }
+
 
