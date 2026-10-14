@@ -1,3 +1,8 @@
+for(const accountForm of document.querySelectorAll('[data-management]')){
+ const role=accountForm.querySelector('[name="role"]');if(!role)continue;
+ const sync=()=>{for(const name of ['hospitalId','hospitalIds','fiscalYears']){const control=accountForm.querySelector('[name="'+name+'"]');if(control)control.closest('label').hidden=name==='hospitalId'?role.value!=='hospital':role.value!=='reviewer';}};
+ role.addEventListener('change',sync);sync();
+}
 for(const form of document.querySelectorAll('[data-management]')){
  let pending=false,uncertain=null;const message=form.querySelector('[role="status"]'),button=form.querySelector('button');
  const errors={VERSION_CONFLICT:'ข้อมูลเปลี่ยนแล้ว กรุณาเปิดข้อมูลล่าสุดก่อนบันทึก',ADMIN_REQUIRED:'บัญชีนี้ไม่มีสิทธิ์จัดการ',SELF_ADMIN_CHANGE_DENIED:'ไม่สามารถปิดหรือเปลี่ยนบทบาทบัญชีแอดมินที่กำลังใช้งาน',LAST_ADMIN_REQUIRED:'ต้องมีแอดมินที่เปิดใช้งานอย่างน้อยหนึ่งบัญชี',REVIEW_SCOPE_REQUIRED:'กรุณาระบุหน่วยบริการและปีงบประมาณของผู้ตรวจ',REVIEW_PROFILE_REQUIRED:'กรุณาระบุชื่อผู้ตรวจ',INVALID_MANAGEMENT_FIELD:'กรุณาตรวจข้อมูลให้ครบถ้วน',INVALID_MANAGEMENT_COMMAND:'รูปแบบข้อมูลไม่ถูกต้อง',INVALID_EVIDENCE_LINK:'ลิงก์ต้องขึ้นต้นด้วย https:// หรือ http://',INVALID_HOSPITAL_MAPPING:'กรุณาเลือกหน่วยบริการ',INVALID_CSRF:'เซสชันเปลี่ยนแล้ว กรุณาเปิดแบบฟอร์มใหม่',APPROVAL_REQUIRED:'กรุณารอแอดมินอนุมัติ',ACCOUNT_DISABLED:'บัญชีถูกปิดใช้งาน',SIGN_IN_REQUIRED:'กรุณาเข้าสู่ระบบอีกครั้ง',WRITER_BUSY:'มีรายการกำลังบันทึก กรุณาลองใหม่',WRITES_DISABLED:'บริการบันทึกปิดอยู่',COMMIT_UNCERTAIN:'ยังยืนยันผลไม่ได้ กรุณาติดต่อผู้ดูแล'};

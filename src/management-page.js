@@ -8,7 +8,7 @@ const esc=escapeHtml;
 export {portalShell} from './portal-layout.js';
 import {portalShell} from './portal-layout.js';
 function hidden(fields){return Object.entries(fields).map(([k,v])=>`<input type="hidden" name="${k}" value="${esc(v)}">`).join('');}
-function form(action,fields,body,csrf,enabled){return `<form data-management>${hidden({action,requestId:randomUUID(),csrf,...fields})}<fieldset ${enabled?'':'disabled'}>${body}<button class="btn primary" type="submit">บันทึก</button></fieldset><p role="status" aria-live="polite"></p></form>`;}
+function form(action,fields,body,csrf,enabled){return `<form data-management>${hidden({action,requestId:randomUUID(),csrf,...fields})}<fieldset ${enabled?'':'disabled'}>${body}<button class="btn primary" type="submit">${({read:'ทำเครื่องหมายว่าอ่านแล้ว',account:'บันทึกสิทธิ์',setting:'บันทึกรอบประเมิน',announcement:'บันทึกประกาศ',comment:'ส่งความเห็น',response:'ส่งคำตอบ'})[action]||'บันทึก'}</button></fieldset>${enabled?'':'<p class="action-hint" data-disabled-note>บริการบันทึกยังไม่เปิดใช้งาน</p>'}<p role="status" aria-live="polite"></p></form>`;}
 function select(name,label,options,value){return `<label>${label}<select name="${name}">${options.map(([k,t])=>`<option value="${esc(k)}" ${String(value)===String(k)?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;}
 function area(name,label,value='',max=10000){return `<label>${label}<textarea name="${name}" maxlength="${max}" rows="4">${esc(value)}</textarea></label>`;}
 export async function managementPage(path,store,access,query,{csrf,enabled}){

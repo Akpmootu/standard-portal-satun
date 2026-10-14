@@ -36,7 +36,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 const landingAssets=new Map([
  ['/satun-coast.webp',{type:'image/webp',body:readFile(new URL('../public/satun-coast.webp',import.meta.url))}],
  ['/satun-thai.woff2',{type:'font/woff2',body:readFile(new URL('../public/satun-thai.woff2',import.meta.url))}],
@@ -81,7 +81,7 @@ export function createApp(config, dependencies = {}) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+    res.setHeader('Content-Security-Policy',"default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; script-src 'self'");
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     function json(status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
     function redirect(location) { res.writeHead(303, { Location: location }); res.end(); }
@@ -108,7 +108,7 @@ export function createApp(config, dependencies = {}) {
         res.writeHead(200, {'Content-Type':asset.type+'; charset=utf-8'}); return res.end(await asset.body);
       }
       if (req.method === 'GET' && ['/demo/dashboard','/demo/mou'].includes(url.pathname) && config.local) {
-        res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'");
         res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
         return res.end(workspacePage(url.pathname.endsWith('/mou')?'mou':'dashboard', true));
       }
@@ -159,7 +159,7 @@ export function createApp(config, dependencies = {}) {
       }
       if(req.method==='GET'&&['/assistant','/admin/integrations'].includes(url.pathname)){
         if(!identity)return redirect('/');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         let body;if(url.pathname==='/assistant')body=assistantPage(access,identity.csrf,config);
         else{fail(access.user.role==='admin','ADMIN_REQUIRED',403);const year=Number(one(url.searchParams,'year')||currentFiscalYear()),kind=one(url.searchParams,'kind')||'daily';fail(['daily','weekly','deadline','help'].includes(kind),'INVALID_SERVICE_COMMAND',400);const reports=await integrationReports(store,access,year);body=integrationsPage({csrf:identity.csrf,config,reports,kind,year,audit:await store.table('audit_log')});}
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
@@ -224,7 +224,7 @@ export function createApp(config, dependencies = {}) {
       if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return json(405, { error: 'WRITES_DISABLED' }); }
       if(url.pathname==='/resources'||url.pathname.startsWith('/resources/')||url.pathname==='/admin/archive'){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         if(url.pathname.startsWith('/resources/')){const file=libraryFile(catalog,access,url.pathname.slice('/resources/'.length));return evidenceResponse(res,file,await resourceDrive.download(file));}
         let body;if(url.pathname==='/admin/archive'){requireArchiveAdmin(access);const name=one(url.searchParams,'table')||'hait_chapters',page=Number(one(url.searchParams,'page')||'1');body=archivePage(catalog,await archive.read(access,name,page));}else body=resourcesPage(catalog,access);
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
@@ -235,7 +235,7 @@ export function createApp(config, dependencies = {}) {
       }
       if(['/admin/users','/admin/settings','/news','/notifications','/hait/comments','/reports','/reports.csv'].includes(url.pathname)){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         const query={hospitalId:one(url.searchParams,'hospital_id'),module:one(url.searchParams,'module'),year:one(url.searchParams,'year')};
         if(url.pathname.startsWith('/reports')){const model=await loadReport(store,access,query);if(url.pathname.endsWith('.csv')){res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="assessment-${model.module}${model.module==='mou'?'-'+model.year:''}.csv"`});return res.end(reportCsv(model));}res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(reportPage(model));}
         const body=await managementPage(url.pathname,store,access,query,{csrf:identity.csrf,enabled:writerConfigured(config)});res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
@@ -244,7 +244,7 @@ export function createApp(config, dependencies = {}) {
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
         const access=await resolveAccess(identity,store),module=url.pathname.split('/')[1];
         const model=await loadModule(store,access,module,one(url.searchParams,'hospital_id'));
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         let body;
         if(url.pathname.endsWith('/action')){
           fail(model.unit,'HOSPITAL_REQUIRED',400);const action=one(url.searchParams,'action')||'save';fail(['save','review'].includes(action),'INVALID_WRITE_COMMAND',400);
@@ -261,7 +261,7 @@ export function createApp(config, dependencies = {}) {
         const rows=await store.table('registration_requests');
         const options={csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)};
         const body=adminPage?registrationAdminPage(rows,await store.directory([...MOU_HOSPITAL_IDS]),options):registrationPage(identity,rows,options);
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
       }
       if(url.pathname==='/overview'){
@@ -293,7 +293,7 @@ export function createApp(config, dependencies = {}) {
         const item=model.items.find(i=>i.id===one(url.searchParams,'item_id'));fail(item,'ITEM_NOT_FOUND',404);
         if(action==='review'){fail(item.record,'PROGRESS_NOT_FOUND',404);requireReviewerScope(access.user,model.hospitalId,model.year);model.reviewerName=reviewProfile(await store.table('reviewer_profiles'),access.user.id).name;}
         else fail(access.user.role==='admin'||!item.lock,'ASSESSMENT_LOCKED',403);
-        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});
         return res.end(mouActionPage(model,item,{csrf:identity.csrf,action,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)}));
       }

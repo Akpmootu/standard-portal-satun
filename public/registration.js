@@ -14,7 +14,7 @@ for(const form of document.querySelectorAll('form[data-registration]')){
   const payload=lockedPayload||JSON.stringify(data);busy=true;button.disabled=true;output.textContent='กำลังบันทึก…';
   try{
    const response=await fetch('/api/registration',{method:'POST',headers:{'Content-Type':'application/json'},body:payload,credentials:'same-origin',signal:AbortSignal.timeout(65000)}),reply=await response.json();
-   if(response.ok&&reply.ok){output.textContent=JSON.parse(payload).action==='register'?'ส่งคำขอแล้ว รอแอดมินอนุมัติ':'บันทึกผลพิจารณาแล้ว';form.querySelector('fieldset').disabled=true;return;}
+   if(response.ok&&reply.ok){output.textContent=JSON.parse(payload).action==='register'?'ส่งคำขอแล้ว รอแอดมินอนุมัติ':'บันทึกผลพิจารณาแล้ว';form.querySelector('fieldset').disabled=true;const link=document.createElement('a');link.className='form-result-link';link.href=data.action==='register'?'/register':'/admin/registrations';link.textContent=data.action==='register'?'ตรวจสถานะคำขอ →':'เปิดคำขอและผลพิจารณาล่าสุด →';output.after(link);return;}
    const code=typeof reply.error==='string'&&/^[A-Z][A-Z0-9_]{0,63}$/.test(reply.error)?reply.error:'UNKNOWN_ERROR';
    const errors={REGISTRATION_EXISTS:'บัญชีนี้มีคำขออยู่แล้ว กรุณาเปิดหน้าลงทะเบียนใหม่',REVIEW_SCOPE_REQUIRED:'กรุณาเลือกหน่วยบริการและปีสำหรับผู้ตรวจ',INVALID_HOSPITAL_MAPPING:'กรุณาเลือกหน่วยบริการ',REJECTION_NOTE_REQUIRED:'กรุณาระบุเหตุผลที่ไม่อนุมัติ',SIGN_IN_REQUIRED:'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่',INVALID_CSRF:'เซสชันเปลี่ยน กรุณาเปิดแบบฟอร์มใหม่',EXISTING_ACCOUNT_REVIEW_REQUIRED:'บัญชีเดิมมีสิทธิ์ต่างจากที่เลือก ต้องตรวจบัญชีเดิมก่อน',VERSION_CONFLICT:'คำขอนี้มีการเปลี่ยนแปลงแล้ว กรุณาอ่านข้อมูลล่าสุด'};
    output.textContent=(errors[code]||'ยังบันทึกไม่สำเร็จ')+' ('+code+')';

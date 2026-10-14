@@ -69,7 +69,7 @@ test('unsafe evidence, sheet markup and hidden file paths are not executed or ex
  const {store,tables}=fixture();tables.mou_items=[{...items[0],title:'<script>bad()</script>'}];
  tables.mou_progress=[{...tables.mou_progress[0],assessment_detail:'<img src=x onerror=bad()>',evidence_link:'javascript:bad()',evidence_file:'/private/FILE-CANARY',admin_reviewed_by:'REVIEWER-CANARY'}];
  const m=await loadMouWorkspace(store,access,{},now),html=readOnlyPage('mou',m);
- assert.ok(html.includes('&lt;script&gt;'));assert.ok(!html.includes('<script'));assert.ok(!html.includes('javascript:'));
+ assert.ok(html.includes('&lt;script&gt;'));assert.deepEqual(html.match(/<script\b[^>]*>[\s\S]*?<\/script>/g),['<script src="/portal-ui.js" defer></script>']);assert.ok(!html.includes('javascript:'));assert.ok(!html.includes('<img src=x'));
  assert.ok(!html.includes('FILE-CANARY'));assert.ok(!JSON.stringify(m).includes('REVIEWER-CANARY'));assert.match(html,/ลิงก์หลักฐานไม่ถูกต้อง/);
  for(const url of ['file:///secret','data:text/html,bad','https://user:pass@example.org'])assert.equal(safeEvidenceUrl(url),'');
 });

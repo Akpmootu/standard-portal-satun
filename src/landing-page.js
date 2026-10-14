@@ -1,9 +1,10 @@
+import {portalBrandMark} from './portal-brand.js';
 import {portalIcon} from './portal-icons.js';
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const arrow='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg>';
 const google='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#4285f4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-2 3.02v2.51h3.24c1.9-1.75 2.98-4.32 2.98-7.36Z"/><path fill="#34a853" d="M12 22c2.7 0 4.96-.9 6.62-2.41l-3.24-2.51c-.9.6-2.05.97-3.38.97-2.6 0-4.8-1.76-5.59-4.12H3.07v2.59A10 10 0 0 0 12 22Z"/><path fill="#fbbc05" d="M6.41 13.93a6 6 0 0 1 0-3.86V7.48H3.07a10 10 0 0 0 0 9.04l3.34-2.59Z"/><path fill="#ea4335" d="M12 5.95c1.47 0 2.78.5 3.82 1.5l2.87-2.87A9.6 9.6 0 0 0 12 2a10 10 0 0 0-8.93 5.48l3.34 2.59C7.2 7.71 9.4 5.95 12 5.95Z"/></svg>';
 const drive='<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#0f9d58" d="M8 2h8l-8 14H0Z"/><path fill="#f4b400" d="M16 2l8 14h-8L8 2Z"/><path fill="#4285f4" d="M0 16h24l-4 7H4Z"/></svg>';
-const brand='<svg class="landing-logo" viewBox="0 0 86 62" aria-hidden="true"><defs><linearGradient id="leaf" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#2b7243"/><stop offset="1" stop-color="#a7ca55"/></linearGradient></defs><text x="1" y="51" fill="#24583e" font-family="Arial,sans-serif" font-size="58" font-weight="800" font-style="italic" letter-spacing="-8">ST</text><path d="M43 22C48 3 65 10 82 3c-4 17-21 24-39 19Z" fill="url(#leaf)"/><path d="M44 23 72 11" fill="none" stroke="#e5efbe" stroke-width="1.5"/></svg>';
+const brand=portalBrandMark;
 
 export function landingPage({loginConfigured,storageConfigured,identity,access,csrf,writeEnabled=false}){
  const signedIn=!!identity;
