@@ -1,3 +1,5 @@
+import {loadPublicProgress,publicProgressCache} from './public-progress.js';
+import {landingPage} from './landing-page.js';
 import {loadOverview,overviewPage} from './overview-page.js';
 import migrationCatalog from './migration-resources.json' with {type:'json'};
 import {migrationReader,archivePage,resourcesPage,libraryFile,requireArchiveAdmin} from './migration-library.js';
@@ -75,6 +77,7 @@ export function createApp(config, dependencies = {}) {
   const resourceDrive=dependencies.resourceDrive||evidenceDrive({...config,evidenceFolderId:catalog.assetFolderId});
   const notifyEvent=async(identity,command,module)=>{if(config.telegram?.enabled&&config.telegram?.confirmed)await eventNotice(integrations,identity,command,module).catch(()=>{});};
   const ready = readiness(config);
+  const publicProgress=publicProgressCache(()=>loadPublicProgress(rootStore.forRequest?rootStore.forRequest():rootStore));
   return async function handle(req, res) {
     const store = rootStore.forRequest ? rootStore.forRequest() : rootStore;
     res.setHeader('Cache-Control', 'no-store');
@@ -93,6 +96,10 @@ export function createApp(config, dependencies = {}) {
       fail(typeof req.url === 'string' && req.url.startsWith('/') && !req.url.startsWith('//'), 'INVALID_URL', 400);
       const url = new URL(req.url, config.origin);
       fail(url.origin === config.origin, 'INVALID_URL', 400);
+      if(url.pathname==='/api/public/progress'){
+        fail(req.method==='GET','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_PUBLIC_QUERY',400);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED',503);
+        try{const summary=await publicProgress();const remaining=Math.max(0,Math.min(60,Math.floor((Date.parse(summary.updatedAt)+60000-Date.now())/1000)));res.setHeader('Cache-Control',summary.stale?'no-store':'public, max-age=0, s-maxage='+remaining);return json(200,summary);}catch{return json(503,{error:'PUBLIC_SUMMARY_UNAVAILABLE'});}
+      }
       if(req.method==='GET'&&url.pathname==='/privacy'){
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyPage());
       }
@@ -333,7 +340,7 @@ export function createApp(config, dependencies = {}) {
           return res.end(readOnlyPage(url.pathname.slice(1),null,{error:true,local:config.local,role:access.user.role}));
         }
       }
-      if (url.pathname === '/') {
+      if (url.pathname === '/' || url.pathname === '/account') {
         let access;
         if (identity) {
           access = { status: 'unavailable' };
@@ -342,8 +349,10 @@ export function createApp(config, dependencies = {}) {
           }
         }
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
+        if(url.pathname==='/account'&&!identity)return redirect('/#login');
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        return res.end(page({ ...ready, identity, access, writeEnabled:writerConfigured(config), csrf: identity?.csrf }));
+        const render=url.pathname==='/account'?page:landingPage;
+        return res.end(render({ ...ready, identity, access, writeEnabled:writerConfigured(config), csrf: identity?.csrf }));
       }
       if (!['/api/me', '/api/assessments', '/api/admin/storage-check'].includes(url.pathname)) return json(404, { error: 'NOT_FOUND' });
       fail(identity, 'SIGN_IN_REQUIRED', 401);

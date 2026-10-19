@@ -187,7 +187,8 @@ test('approved account opens actual read-only workspace with honest empty state 
   const html=await res.text();assert.ok(!html.includes('workspace.js'));assert.ok(!html.includes('private-canary'));assert.match(html,/รอนำเข้าข้อมูลต้นทาง/);
   assert.ok(!html.includes('DEMO-PCU'));assert.match(res.headers.get('content-security-policy'),/default-src 'none'/);
  }
- assert.match(await (await request('/',{headers})).text(),/href="\/dashboard"/);
+ assert.match(await (await request('/',{headers})).text(),/public-landing/);
+ assert.match(await (await request('/account',{headers})).text(),/href="\/dashboard"/);
 });
 
 test('real workspace returns safe error page for Google failure instead of zero or synthetic results',async t=>{
