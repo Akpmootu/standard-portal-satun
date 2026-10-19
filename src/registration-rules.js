@@ -12,7 +12,9 @@ export function normalizeRegistrationCommand(c){
  const text=(v,max,required=true)=>{fail(typeof v==='string'&&v.length<=max&&(!required||v.trim()),'INVALID_REGISTRATION',400);return v.trim();};
  if(c.action==='register'){
   Object.assign(out,{displayName:text(c.displayName,100),jobTitle:text(c.jobTitle,200),organization:text(c.organization,300),phone:text(c.phone,30)});
-  fail(/^[+0-9() .-]{6,30}$/.test(out.phone),'INVALID_REGISTRATION',400);
+  fail(/^\S+(?:\s+\S+)+$/u.test(out.displayName),'REGISTRATION_FULL_NAME_REQUIRED',400);
+  fail(/^[0-9]{10}$/.test(out.phone),'REGISTRATION_PHONE_REQUIRED',400);
+  fail(MOU_HOSPITAL_IDS.includes(out.organization),'REGISTRATION_UNIT_REQUIRED',400);
  }else{
   Object.assign(out,{registrationId:text(c.registrationId,100),expectedVersion:c.expectedVersion,role:c.role,hospitalId:c.hospitalId,hospitalIds:c.hospitalIds,fiscalYears:c.fiscalYears,note:text(c.note,2000,false)});
   fail(/^reg-[a-f0-9-]{36}$/.test(out.registrationId)&&Number.isSafeInteger(c.expectedVersion)&&c.expectedVersion>0,'INVALID_REGISTRATION',400);

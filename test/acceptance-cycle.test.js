@@ -36,7 +36,7 @@ test('isolated HTTP acceptance: signup, role approval, save, reject, resubmit, a
  async function accepted(response){assert.equal(response.status,200);const body=await response.json();assert.equal(body.ok,true);return body;}
  assert.equal((await request('/mou')).status,303);assert.equal((await request('/mou',hospital)).status,403);checks.push('anonymous and unapproved account denied');
  for(const [who,role] of [[hospital,'hospital'],[reviewer,'reviewer']]){
-  const registered=await accepted(await post('/api/registration',who,{requestId:randomUUID(),action:'register',displayName:'ผู้สมัครสมมติ '+role,jobTitle:'ทดสอบ',organization:'หน่วยงานสมมติ',phone:'020000000'}));
+  const registered=await accepted(await post('/api/registration',who,{requestId:randomUUID(),action:'register',displayName:'ผู้สมัครสมมติ '+role,jobTitle:'ทดสอบ',organization:'09625',phone:'0200000000'}));
   assert.equal((await request('/mou',who)).status,403);
   await accepted(await post('/api/registration',admin,{requestId:randomUUID(),action:'approve',registrationId:registered.recordId,expectedVersion:1,role,hospitalId:role==='hospital'?'09625':'',hospitalIds:role==='reviewer'?['09625']:[],fiscalYears:role==='reviewer'?[year]:[],note:'อนุมัติในระบบทดสอบเท่านั้น'}));
  }

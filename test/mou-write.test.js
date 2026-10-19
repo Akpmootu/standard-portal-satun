@@ -164,10 +164,10 @@ test('bundled writer enforces reviewer scope and approved name under the lock',(
 
 test('bundled signup and admin approval each commit one atomic batch; signup grants no access',()=>{
  const g=gasFixture(),applicant={provider:'google',subject:'new-sub',email:'new@example.test'};
- const c={requestId:randomUUID(),action:'register',displayName:'ผู้สมัครสมมติ',jobTitle:'เจ้าหน้าที่',organization:'หน่วยงานสมมติ',phone:'020000000'};
+ const c={requestId:randomUUID(),action:'register',displayName:'ผู้สมัคร สมมติ',jobTitle:'เจ้าหน้าที่',organization:'09625',phone:'0200000000'};
  assert.equal(g.post(c,applicant,now.getTime(),false,'registration').ok,true);assert.equal(g.batches,1);assert.equal(g.grids.users.length,4);assert.equal(g.grids.registration_requests.length,2);
  assert.equal(g.post(c,applicant,now.getTime(),false,'registration').replayed,true);assert.equal(g.batches,1);
  const approve={requestId:randomUUID(),action:'approve',registrationId:'reg-'+c.requestId,expectedVersion:1,role:'reviewer',hospitalId:'',hospitalIds:['09625'],fiscalYears:[2569],note:''};
  assert.equal(g.post(approve,admin,now.getTime(),false,'registration').ok,true);assert.equal(g.batches,2);assert.equal(g.grids.users.length,5);assert.equal(g.grids.identities.length,5);assert.equal(g.grids.reviewer_profiles.length,4);
- assert.equal(g.post(review(),applicant).ok,true);assert.equal(g.grids.mou_review_history[1][4],'ผู้สมัครสมมติ');
+ assert.equal(g.post(review(),applicant).ok,true);assert.equal(g.grids.mou_review_history[1][4],'ผู้สมัคร สมมติ');
 });

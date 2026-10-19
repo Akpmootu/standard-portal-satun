@@ -1,3 +1,4 @@
+import {registrationUnits} from './registration-units.js';
 import {loadPublicProgress,publicProgressCache} from './public-progress.js';
 import {landingPage} from './landing-page.js';
 import {loadOverview,overviewPage} from './overview-page.js';
@@ -141,6 +142,10 @@ export function createApp(config, dependencies = {}) {
         return redirect('/');
       }
       const identity = await codec.read('session', req.headers.cookie);
+      if(url.pathname==='/api/registration/units'){
+        fail(req.method==='GET','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_REGISTRATION_QUERY',400);fail(identity,'SIGN_IN_REQUIRED',401);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
+        return json(200,{units:registrationUnits(await store.table('registration_requests'),await store.directory([...MOU_HOSPITAL_IDS])),checkedAt:new Date().toISOString()});
+      }
       if(req.method==='GET'&&url.pathname==='/api/integrations/cron'){
         fail(config.cronSecret&&equalToken(req.headers.authorization,'Bearer '+config.cronSecret),'CRON_ACCESS_DENIED',403);
         fail(config.telegram?.enabled&&config.telegram?.confirmed,'TELEGRAM_NOT_ENABLED',503);
@@ -210,6 +215,7 @@ export function createApp(config, dependencies = {}) {
         fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
         const {csrf,...input}=await writeBody(req);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);
         const command=normalizeRegistrationCommand(input);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
+        if(command.action==='register'){const selected=await store.directory([command.organization]);fail(selected.length===1&&selected[0].id===command.organization,'REGISTRATION_UNIT_UNAVAILABLE',400);}
         if(command.action!=='register'){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
         return json(200,await writer.execute(identity,command,'registration'));
       }
@@ -266,8 +272,8 @@ export function createApp(config, dependencies = {}) {
         const adminPage=url.pathname==='/admin/registrations';
         if(adminPage){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
         const rows=await store.table('registration_requests');
-        const options={csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)};
-        const body=adminPage?registrationAdminPage(rows,await store.directory([...MOU_HOSPITAL_IDS]),options):registrationPage(identity,rows,options);
+        const options={csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken),units:registrationUnits(rows,await store.directory([...MOU_HOSPITAL_IDS]))};
+        const body=adminPage?registrationAdminPage(rows,options.units,options):registrationPage(identity,rows,options);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);
       }
