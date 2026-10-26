@@ -40,7 +40,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','evidence-files.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['portal-session.js','portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','evidence-files.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 const landingAssets=new Map([
  ['/satun-coast.webp',{type:'image/webp',body:readFile(new URL('../public/satun-coast.webp',import.meta.url))}],
  ['/satun-thai.woff2',{type:'font/woff2',body:readFile(new URL('../public/satun-thai.woff2',import.meta.url))}],
@@ -144,6 +144,17 @@ export function createApp(config, dependencies = {}) {
         return redirect('/');
       }
       const identity = await codec.read('session', req.headers.cookie);
+      if(url.pathname==='/api/session/recover'){
+        fail(req.method==='POST','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_SESSION_RECOVERY',400);fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
+        const input=await writeBody(req,6000);fail(Object.keys(input).length===1&&typeof input.recoveryToken==='string'&&input.recoveryToken.length<=4096,'INVALID_SESSION_RECOVERY',400);
+        const original=await codec.read('draft',codec.name('draft')+'='+input.recoveryToken);
+        fail(original,'RECOVERY_CONTEXT_EXPIRED',403);fail(original.provider===identity.provider&&original.subject===identity.subject,'RECOVERY_ACCOUNT_MISMATCH',403);
+        return json(200,{ok:true,csrf:identity.csrf,expiresAt:identity.exp*1000});
+      }
+      if(identity&&req.method==='GET'&&!url.pathname.startsWith('/api/')&&typeof codec.issue==='function'&&Number.isFinite(identity.exp)){
+        const draft=await codec.issue('draft',{provider:identity.provider,subject:identity.subject},28800),end=res.end;
+        res.end=function(body,...args){if(typeof body==='string'&&body.startsWith('<!doctype html>'))body=body.replace('</head>','<meta name="portal-session" content="'+draft.value+'" data-expires="'+identity.exp*1000+'"><script src="/portal-session.js" defer></script></head>');return end.call(this,body,...args);};
+      }
       if(req.method==='GET'&&url.pathname==='/files'){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store),tables=await evidenceInventory(store,access);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
