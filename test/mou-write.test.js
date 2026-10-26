@@ -184,3 +184,15 @@ test('bundled signup and admin approval each commit one atomic batch; signup gra
  assert.equal(g.post(approve,admin,now.getTime(),false,'registration').ok,true);assert.equal(g.batches,2);assert.equal(g.grids.users.length,5);assert.equal(g.grids.identities.length,5);assert.equal(g.grids.reviewer_profiles.length,4);
  assert.equal(g.post(review(),applicant).ok,true);assert.equal(g.grids.mou_review_history[1][4],'ผู้สมัคร สมมติ');
 });
+
+test('bundled rejected registration resubmits atomically without accounts and detects stale admin decision',()=>{
+ const g=gasFixture(),applicant={provider:'google',subject:'new-sub',email:'new@example.test'},c={requestId:randomUUID(),action:'register',displayName:'ผู้สมัคร สมมติ',jobTitle:'ตำแหน่งเดิม',organization:'09625',phone:'0200000000'};
+ assert.equal(g.post(c,applicant,now.getTime(),false,'registration').ok,true);
+ const decision={requestId:randomUUID(),action:'reject',registrationId:'reg-'+c.requestId,expectedVersion:1,role:'hospital',hospitalId:'09625',hospitalIds:[],fiscalYears:[],note:'แก้ข้อมูลตำแหน่ง'};
+ assert.equal(g.post(decision,admin,now.getTime(),false,'registration').ok,true);
+ const retry={...c,requestId:randomUUID(),action:'resubmit',registrationId:decision.registrationId,expectedVersion:2,jobTitle:'ตำแหน่งใหม่'};
+ assert.equal(g.post(retry,applicant,now.getTime(),false,'registration').ok,true);assert.equal(g.batches,3);assert.equal(g.grids.users.length,4);assert.equal(g.grids.identities.length,4);assert.equal(g.grids.registration_requests.length,2);
+ assert.equal(g.post(retry,applicant,now.getTime(),false,'registration').replayed,true);assert.equal(g.batches,3);
+ assert.equal(g.post({...decision,requestId:randomUUID(),action:'approve',expectedVersion:2},admin,now.getTime(),false,'registration').error,'VERSION_CONFLICT');assert.equal(g.batches,3);
+ const headers=g.grids.audit_log[0],last=g.grids.audit_log.at(-1),detail=JSON.parse(last[headers.indexOf('changed_fields')]);assert.equal(detail.before.decision_note,'แก้ข้อมูลตำแหน่ง');assert.equal(detail.after.status,'pending');
+});

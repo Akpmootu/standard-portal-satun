@@ -5,7 +5,7 @@ function writerAssert(ok,code){if(!ok)throw new Error(code);}
 function writerSame(a,b){if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;var diff=0;for(var i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0;}
 function writerHash(s){return writerHex(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,s,Utilities.Charset.UTF_8));}
 function writerOutput(value){return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);}
-function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED',evidencePolicy:2});}
+function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED',evidencePolicy:2,registrationPolicy:2});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function writerRead(sheetId,module,evidence){
   var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES,['files']);

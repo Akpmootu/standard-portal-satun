@@ -238,8 +238,8 @@ export function createApp(config, dependencies = {}) {
         fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
         const {csrf,...input}=await writeBody(req);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);
         const command=normalizeRegistrationCommand(input);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
-        if(command.action==='register'){const selected=await store.directory([command.organization]);fail(selected.length===1&&selected[0].id===command.organization,'REGISTRATION_UNIT_UNAVAILABLE',400);}
-        if(command.action!=='register'){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
+        if(['register','resubmit'].includes(command.action)){const selected=await store.directory([command.organization]);fail(selected.length===1&&selected[0].id===command.organization,'REGISTRATION_UNIT_UNAVAILABLE',400);}
+        if(!['register','resubmit'].includes(command.action)){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
         return json(200,await writer.execute(identity,command,'registration'));
       }
       if(req.method==='POST'&&url.pathname==='/api/mou/write'){
@@ -295,7 +295,9 @@ export function createApp(config, dependencies = {}) {
         const adminPage=url.pathname==='/admin/registrations';
         if(adminPage){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
         const rows=await store.table('registration_requests');
-        const options={csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken),units:registrationUnits(rows,await store.directory([...MOU_HOSPITAL_IDS]))};
+        const visibleIds=new Set(rows.filter(r=>adminPage||r.provider===identity.provider&&r.provider_subject===identity.subject).map(r=>r.id));
+        const history=visibleIds.size?(await store.table('audit_log')).filter(r=>r.record_type==='registration'&&visibleIds.has(r.record_id)):[];
+        const options={history,csrf:identity.csrf,enabled:writerConfigured(config),preview:dependencies.preview===true,evidenceEnabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken),units:registrationUnits(rows,await store.directory([...MOU_HOSPITAL_IDS]))};
         const body=adminPage?registrationAdminPage(rows,options.units,options):registrationPage(identity,rows,options);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(body);

@@ -382,12 +382,14 @@ const {MOU_HOSPITAL_IDS} = WriterReference;
 function normalizeRegistrationCommand(c){
  fail(c&&typeof c==='object'&&!Array.isArray(c),'INVALID_REGISTRATION',400);
  const base=['requestId','action'];
- const extra=c.action==='register'?['displayName','jobTitle','organization','phone']:['approve','reject'].includes(c.action)?['registrationId','expectedVersion','role','hospitalId','hospitalIds','fiscalYears','note']:[];
+ const profile=['displayName','jobTitle','organization','phone'];
+ const extra=c.action==='register'?profile:c.action==='resubmit'?[...profile,'registrationId','expectedVersion']:['approve','reject'].includes(c.action)?['registrationId','expectedVersion','role','hospitalId','hospitalIds','fiscalYears','note']:[];
  fail(extra.length&&Object.keys(c).length===base.length+extra.length&&Object.keys(c).every(k=>[...base,...extra].includes(k)),'INVALID_REGISTRATION',400);
  fail(typeof c.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(c.requestId),'INVALID_REQUEST_ID',400);
  const out={requestId:c.requestId.toLowerCase(),action:c.action};
  const text=(v,max,required=true)=>{fail(typeof v==='string'&&v.length<=max&&(!required||v.trim()),'INVALID_REGISTRATION',400);return v.trim();};
- if(c.action==='register'){
+ if(['register','resubmit'].includes(c.action)){
+  if(c.action==='resubmit'){fail(typeof c.registrationId==='string'&&/^reg-[a-f0-9-]{36}$/.test(c.registrationId)&&Number.isSafeInteger(c.expectedVersion)&&c.expectedVersion>0&&c.expectedVersion<1e9,'INVALID_REGISTRATION',400);Object.assign(out,{registrationId:c.registrationId,expectedVersion:c.expectedVersion});}
   Object.assign(out,{displayName:text(c.displayName,100),jobTitle:text(c.jobTitle,200),organization:text(c.organization,300),phone:text(c.phone,30)});
   fail(/^\S+(?:\s+\S+)+$/u.test(out.displayName),'REGISTRATION_FULL_NAME_REQUIRED',400);
   fail(/^[0-9]{10}$/.test(out.phone),'REGISTRATION_PHONE_REQUIRED',400);
@@ -410,20 +412,29 @@ function normalizeRegistrationCommand(c){
 function planRegistration(tables,identity,input,sha,now=new Date()){
  const c=normalizeRegistrationCommand(input),timestamp=bangkokTimestamp(now);
  fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
- const actor=c.action==='register'?{id:'google:'+identity.subject}:writeActor(identity,tables);
- if(c.action!=='register')fail(actor.role==='admin','ADMIN_REQUIRED',403);
+ const applicant=['register','resubmit'].includes(c.action);
+ const actor=applicant?{id:'google:'+identity.subject}:writeActor(identity,tables);
+ if(!applicant)fail(actor.role==='admin','ADMIN_REQUIRED',403);
  fail(typeof sha==='string'&&/^[a-f0-9]{64}$/.test(sha),'INVALID_PAYLOAD_HASH',400);
  const receipts=tables.write_requests.filter(r=>r.request_id===c.requestId);fail(receipts.length<=1,'DUPLICATE_REQUEST_RECORD');
  if(receipts.length){const p=receipts[0];fail(p.actor_id===actor.id&&p.operation===c.action&&p.payload_sha256===sha&&p.record_type==='registration','REQUEST_ID_REUSED',409);fail(p.state==='committed','REQUEST_NOT_COMMITTED',409);return {replayed:true,result:{ok:true,requestId:c.requestId,recordId:p.record_id,version:p.result_version,replayed:true}};}
- const changes=[];let next;
+ const changes=[];let next,before=null;
  if(c.action==='register'){
   fail(typeof identity.email==='string'&&identity.email.length<=320&&identity.email.includes('@'),'SIGN_IN_REQUIRED',401);
   fail(!tables.registration_requests.some(r=>r.provider==='google'&&r.provider_subject===identity.subject),'REGISTRATION_EXISTS',409);
   // Registration grants nothing. An existing account can submit its verified-name profile once.
   next={id:'reg-'+c.requestId,provider:'google',provider_subject:identity.subject,email:identity.email,display_name:c.displayName,job_title:c.jobTitle,organization:c.organization,phone:c.phone,requested_at:timestamp,status:'pending',decided_at:'',decided_by:'',assigned_role:'',hospital_id:'',hospital_ids:'[]',fiscal_years:'[]',decision_note:'',_version:1,_request_id:c.requestId};
   changes.push({table:'registration_requests',record:next,existing:false});
- }else{
+ }else if(c.action==='resubmit'){
   const matches=tables.registration_requests.filter(r=>r.id===c.registrationId);fail(matches.length===1,'REGISTRATION_NOT_FOUND',404);const r=matches[0];
+  fail(r.provider===identity.provider&&r.provider_subject===identity.subject,'REGISTRATION_OWNER_REQUIRED',403);
+  fail(tables.registration_requests.filter(x=>x.provider===identity.provider&&x.provider_subject===identity.subject).length===1,'AMBIGUOUS_REGISTRATION',409);
+  fail(r._version===c.expectedVersion,'VERSION_CONFLICT',409);fail(r.status==='rejected','REGISTRATION_RESUBMIT_DENIED',409);
+  fail(typeof identity.email==='string'&&identity.email.length<=320&&identity.email.includes('@'),'SIGN_IN_REQUIRED',401);before=r;
+  next={...r,email:identity.email,display_name:c.displayName,job_title:c.jobTitle,organization:c.organization,phone:c.phone,requested_at:timestamp,status:'pending',decided_at:'',decided_by:'',assigned_role:'',hospital_id:'',hospital_ids:'[]',fiscal_years:'[]',decision_note:'',_version:r._version+1,_request_id:c.requestId};
+  changes.push({table:'registration_requests',record:next,existing:true});
+ }else{
+  const matches=tables.registration_requests.filter(r=>r.id===c.registrationId);fail(matches.length===1,'REGISTRATION_NOT_FOUND',404);const r=matches[0];before=r;
   fail(r._version===c.expectedVersion,'VERSION_CONFLICT',409);fail(r.status==='pending','REGISTRATION_ALREADY_DECIDED',409);
   next={...r,status:c.action==='approve'?'approved':'rejected',decided_at:timestamp,decided_by:actor.id,assigned_role:c.action==='approve'?c.role:'',hospital_id:c.action==='approve'?c.hospitalId:'',hospital_ids:c.action==='approve'?JSON.stringify(c.hospitalIds):'[]',fiscal_years:c.action==='approve'?JSON.stringify(c.fiscalYears):'[]',decision_note:c.note,_version:r._version+1,_request_id:c.requestId};
   if(c.action==='approve'){
@@ -445,7 +456,8 @@ function planRegistration(tables,identity,input,sha,now=new Date()){
   }
   changes.push({table:'registration_requests',record:next,existing:true});
  }
- const audit={id:'account-audit-'+c.requestId,actor_id:actor.id,action:c.action,record_type:'registration',record_id:next.id,hospital_id:next.hospital_id,request_id:c.requestId,changed_fields:JSON.stringify(changes.map(x=>x.table)),created_at:timestamp};
+ const snapshot=r=>r?Object.fromEntries(['display_name','job_title','organization','phone','email','requested_at','status','decided_at','decided_by','decision_note','assigned_role','hospital_id','hospital_ids','fiscal_years','_version'].map(k=>[k,r[k]??''])):null;
+ const audit={id:'account-audit-'+c.requestId,actor_id:actor.id,action:c.action,record_type:'registration',record_id:next.id,hospital_id:next.hospital_id,request_id:c.requestId,changed_fields:JSON.stringify({tables:changes.map(x=>x.table),before:snapshot(before),after:snapshot(next)}),created_at:timestamp};
  const receipt={request_id:c.requestId,actor_id:actor.id,operation:c.action,payload_sha256:sha,record_type:'registration',record_id:next.id,state:'committed',result_version:next._version,created_at:timestamp,completed_at:timestamp};
  changes.push({table:'audit_log',record:audit,existing:false},{table:'write_requests',record:receipt,existing:false});
  return {changes,result:{ok:true,requestId:c.requestId,recordId:next.id,version:next._version,replayed:false}};
@@ -769,7 +781,7 @@ function writerAssert(ok,code){if(!ok)throw new Error(code);}
 function writerSame(a,b){if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;var diff=0;for(var i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0;}
 function writerHash(s){return writerHex(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,s,Utilities.Charset.UTF_8));}
 function writerOutput(value){return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);}
-function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED',evidencePolicy:2});}
+function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED',evidencePolicy:2,registrationPolicy:2});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
 function writerRead(sheetId,module,evidence){
   var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES,['files']);
