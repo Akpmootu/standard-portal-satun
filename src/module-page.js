@@ -20,6 +20,7 @@ export async function loadModule(store,access,module,hospitalId){
  if(!hospitalId)return model;
  requireHospital(access,hospitalId,null,module);fail(allowed.includes(hospitalId),'HOSPITAL_ONLY',403);
  model.unit=units.find(u=>u.id===hospitalId);fail(model.unit,'HOSPITAL_NOT_FOUND',404);
+ await store.prefetch?.([def.catalog,def.progress,def.history,...(module==='hait'?['rg12_chapters']:[])]);
  model.items=(await store.table(def.catalog)).sort((a,b)=>Number(a.sort_order)-Number(b.sort_order)||a.id.localeCompare(b.id,undefined,{numeric:true}));
  if(module==='hait')model.chapters=(await store.table('rg12_chapters')).sort((a,b)=>Number(a.sort_order)-Number(b.sort_order));
  model.progress=(await store.table(def.progress)).filter(r=>r.hospital_id===hospitalId);

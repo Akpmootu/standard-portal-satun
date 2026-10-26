@@ -89,6 +89,7 @@ export function createApp(config, dependencies = {}) {
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
     function json(status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
     function redirect(location) { res.writeHead(303, { Location: location }); res.end(); }
+    function retryAfter(error){if(error instanceof PortalError&&error.code==='GOOGLE_QUOTA_EXCEEDED'&&Number.isInteger(error.retryAfter))res.setHeader('Retry-After',String(Math.max(1,Math.min(120,error.retryAfter))));}
     try {
       // Vercel schedules against the immutable production deployment hostname.
       // Permit only its exact cron path with the existing bearer; browser routes stay canonical.
@@ -99,7 +100,7 @@ export function createApp(config, dependencies = {}) {
       fail(url.origin === config.origin, 'INVALID_URL', 400);
       if(url.pathname==='/api/public/progress'){
         fail(req.method==='GET','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_PUBLIC_QUERY',400);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED',503);
-        try{const summary=await publicProgress();const remaining=Math.max(0,Math.min(60,Math.floor((Date.parse(summary.updatedAt)+60000-Date.now())/1000)));res.setHeader('Cache-Control',summary.stale?'no-store':'public, max-age=0, s-maxage='+remaining);return json(200,summary);}catch{return json(503,{error:'PUBLIC_SUMMARY_UNAVAILABLE'});}
+        try{const summary=await publicProgress();const remaining=Math.max(0,Math.min(60,Math.floor((Date.parse(summary.updatedAt)+60000-Date.now())/1000)));res.setHeader('Cache-Control',summary.stale?'no-store':'public, max-age=0, s-maxage='+remaining);return json(200,summary);}catch(error){retryAfter(error);return json(503,{error:'PUBLIC_SUMMARY_UNAVAILABLE'});}
       }
       if(req.method==='GET'&&url.pathname==='/privacy'){
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(privacyPage());
@@ -376,6 +377,7 @@ export function createApp(config, dependencies = {}) {
       const fiscalYear = one(url.searchParams, 'fiscal_year');
       return json(200, { readOnly: true, module, hospitalId, rows: await assessments(store, access, module, hospitalId, fiscalYear) });
     } catch (error) {
+      retryAfter(error);
       return json(error instanceof PortalError ? error.status : 503, {
         error: error instanceof PortalError ? error.code : 'SERVICE_UNAVAILABLE',
       });

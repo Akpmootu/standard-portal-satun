@@ -9,6 +9,8 @@ export async function loadReport(store,access,query={}){
  fail(access.status==='active','APPROVAL_REQUIRED',403);const module=query.module||'mou';fail(['mou','ctam','hait'].includes(module),'UNKNOWN_MODULE',400);
  const year=query.year==null?currentFiscalYear():Number(query.year);fail(Number.isInteger(year)&&year>=2500&&year<=2700,'INVALID_FISCAL_YEAR',400);
  fail(access.user.role!=='reviewer'||module==='mou','MODULE_SCOPE_REQUIRED',403);
+ if(query.hospitalId)requireHospital(access,query.hospitalId,year,module);
+ await store.prefetch?.(module==='mou'?['mou_agencies','mou_categories','mou_items','mou_settings','mou_progress']:['mou_agencies',MODULES[module].catalog,MODULES[module].progress]);
  const allowed=reviewHospitalIds(access.user,year),agencies=normalizeAgencies(await store.table('mou_agencies'));
  const ids=allowed.filter(id=>module==='mou'||agencies.get(id)?.group==='HOSPITAL');
  if(query.hospitalId){requireHospital(access,query.hospitalId,year,module);fail(ids.includes(query.hospitalId),'HOSPITAL_ACCESS_DENIED',403);}

@@ -7,6 +7,7 @@ const percent=(n,total)=>total?Math.round(n/total*1000)/10:0;
 // Server-owned aggregation scope only. This never authenticates a visitor or grants a role.
 // Use the same assessment rules as reports, but never read identities or the national directory.
 export async function loadPublicProgress(store,now=new Date()){
+ await store.prefetch?.([...allowed]);
  const memo=new Map();const table=name=>{fail(allowed.has(name),'PUBLIC_TABLE_DENIED');if(!memo.has(name))memo.set(name,store.table(name));return memo.get(name);};
  const agencies=normalizeAgencies(await table('mou_agencies'));
  const scoped={table,directory:async ids=>ids.filter(id=>agencies.has(id)).map(id=>({id,name:''}))};

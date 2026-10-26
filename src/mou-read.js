@@ -62,6 +62,7 @@ export async function loadMouWorkspace(store,access,query={},now=new Date()) {
   if(hospitalId)fail(ids.includes(hospitalId),'HOSPITAL_OUTSIDE_PROJECT',403);
   // Authorization happens before any directory/catalog/assessment read. No shared access cache.
   const names=['mou_categories','mou_items','mou_settings','mou_agencies'];
+  await store.prefetch?.([...names,...(hospitalId?['mou_progress']:[])]);
   const [directory,referenceRows]=await Promise.all([
     store.directory(ids),store.tables?store.tables(names):Promise.all(names.map(name=>store.table(name))),
   ]);

@@ -3,6 +3,7 @@ import { fail } from './errors.js';
 
 export async function resolveAccess(identity, store) {
   fail(identity?.provider === 'google' && typeof identity.subject === 'string', 'SIGN_IN_REQUIRED', 401);
+  await store.prefetch?.(['identities','users','reviewer_profiles']);
   // No cache for identities/users: disable or role changes apply on the next request.
   const matches = (await store.table('identities')).filter(row =>
     row.provider === identity.provider && row.provider_subject === identity.subject);

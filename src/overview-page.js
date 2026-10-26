@@ -8,6 +8,7 @@ export async function loadOverview(store,access,yearText){
  const year=yearText==null?currentFiscalYear():Number(yearText);
  fail((yearText==null||/^\d{4}$/.test(String(yearText)))&&year>=2500&&year<=2700,'INVALID_FISCAL_YEAR',400);
  const modules=access.user.role==='reviewer'?['mou']:['mou','ctam','hait'];
+ await store.prefetch?.(['mou_agencies','mou_categories','mou_items','mou_settings','mou_progress',...(modules.length>1?['ctam_items','ctam_progress','rg12_sub_items','rg12_progress']:[])]);
  // Reuse reads only within this overview request; never cache identity or role state.
  const tables=new Map(),directories=new Map();
  const scopedStore={table(name){if(!tables.has(name))tables.set(name,store.table(name));return tables.get(name);},directory(ids){const key=JSON.stringify(ids);if(!directories.has(key))directories.set(key,store.directory(ids));return directories.get(key);}};

@@ -113,6 +113,7 @@ const { fail } = WriterErrors;
 
 async function resolveAccess(identity, store) {
   fail(identity?.provider === 'google' && typeof identity.subject === 'string', 'SIGN_IN_REQUIRED', 401);
+  await store.prefetch?.(['identities','users','reviewer_profiles']);
   // No cache for identities/users: disable or role changes apply on the next request.
   const matches = (await store.table('identities')).filter(row =>
     row.provider === identity.provider && row.provider_subject === identity.subject);
@@ -214,6 +215,7 @@ async function loadMouWorkspace(store,access,query={},now=new Date()) {
   if(hospitalId)fail(ids.includes(hospitalId),'HOSPITAL_OUTSIDE_PROJECT',403);
   // Authorization happens before any directory/catalog/assessment read. No shared access cache.
   const names=['mou_categories','mou_items','mou_settings','mou_agencies'];
+  await store.prefetch?.([...names,...(hospitalId?['mou_progress']:[])]);
   const [directory,referenceRows]=await Promise.all([
     store.directory(ids),store.tables?store.tables(names):Promise.all(names.map(name=>store.table(name))),
   ]);

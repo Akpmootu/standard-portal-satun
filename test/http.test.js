@@ -6,6 +6,7 @@ import { readConfig } from '../src/config.js';
 import { sessionCodec } from '../src/session.js';
 import { createApp } from '../src/app.js';
 import vercelHandler from '../api/index.js';
+import {PortalError} from '../src/errors.js';
 
 async function fixture(t, overrides = {}) {
   const config = readConfig({ SESSION_KEY_HEX: randomBytes(32).toString('hex'), GOOGLE_LOGIN_CLIENT_ID: 'fake',
@@ -22,6 +23,18 @@ async function fixture(t, overrides = {}) {
   const request = (path, options = {}) => fetch(config.origin + path, { redirect: 'manual', ...options });
   return { config, codec, request };
 }
+
+test('quota failures return a bounded Retry-After without exposing provider details',async t=>{
+ const error=Object.assign(new PortalError('GOOGLE_QUOTA_EXCEEDED',503),{retryAfter:60});
+ const {request,codec}=await fixture(t,{store:{table:async()=>{throw error;}}});
+ const cookie=(await codec.issue('session',{provider:'google',subject:'test-sub'},60)).cookie.split(';')[0];
+ const response=await request('/api/me',{headers:{cookie}});
+ assert.equal(response.status,503);assert.equal(response.headers.get('retry-after'),'60');
+ assert.deepEqual(await response.json(),{error:'GOOGLE_QUOTA_EXCEEDED'});
+ const publicResponse=await request('/api/public/progress');
+ assert.equal(publicResponse.status,503);assert.equal(publicResponse.headers.get('retry-after'),'60');
+ assert.deepEqual(await publicResponse.json(),{error:'PUBLIC_SUMMARY_UNAVAILABLE'});
+});
 
 test('unconfigured landing is readable and login is disabled', async t => {
   const { request } = await fixture(t, { noLogin: true });

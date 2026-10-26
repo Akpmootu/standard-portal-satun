@@ -33,6 +33,7 @@ export async function loadMouHistory(store,access,query={},now=new Date()) {
   const page=query.page==null?1:Number(query.page);
   fail(query.page==null||/^[1-9]\d{0,3}$/.test(String(query.page)),'INVALID_PAGE',400);
   const permitted=reviewHospitalIds(access.user,year);
+  await store.prefetch?.(['mou_progress','mou_review_history','mou_items']);
   const parents=await store.table('mou_progress');
   const parentIds=new Set();
   for(const r of parents){fail(typeof r.id==='string'&&r.id&&!parentIds.has(r.id),'INVALID_MOU_HISTORY_PARENT');parentIds.add(r.id);}

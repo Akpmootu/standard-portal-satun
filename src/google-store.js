@@ -34,18 +34,46 @@ export function parseTable(name, values) {
   });
 }
 
-export function googleStore(config, injectedClient, requestMetadata = null) {
+export function googleStore(config, injectedClient, requestMetadata = null, shared = {}) {
   const client = injectedClient || new OAuth2Client(config.storage.clientId, config.storage.clientSecret);
   if (!injectedClient) client.setCredentials({ refresh_token: config.storage.refreshToken });
+  shared.clock ||= Date.now;
+  shared.reads ||= [];
+  shared.blockedUntil ||= 0;
+  shared.units ||= new Map();
+  shared.unitLoads ||= new Map();
+  const requestTables = requestMetadata ? new Map() : null;
+  let pending = [], scheduled = false;
+  function quotaError() {
+    const error = new PortalError('GOOGLE_QUOTA_EXCEEDED',503);
+    error.retryAfter = Math.max(1,Math.ceil((shared.blockedUntil-shared.clock())/1000));
+    return error;
+  }
   async function get(url) {
     fail(config.storage.refreshToken || injectedClient, 'STORAGE_NOT_CONFIGURED');
     // Only fixed Google GET endpoints are reachable; the browser never supplies a URL or sheet ID.
     for (let attempt = 0; attempt < 3; attempt++) {
+      const now=shared.clock(),sheets=new URL(url).hostname==='sheets.googleapis.com';
+      if(sheets){
+        if(now<shared.blockedUntil)throw quotaError();
+        shared.reads=shared.reads.filter(time=>time>now-60000);
+        // Per-process protection, leaving headroom for other Google clients.
+        // Google still enforces the owner quota across all serverless instances.
+        if(shared.reads.length>=45){shared.blockedUntil=shared.reads[0]+60000;throw quotaError();}
+        shared.reads.push(now);
+      }
       try { return (await client.request({ url, method: 'GET', timeout: 8000, retry: false })).data; }
       catch (error) {
         const status = error.response?.status;
-        if ([429, 500, 502, 503, 504].includes(status) && attempt < 2) {
-          await new Promise(resolve => setTimeout(resolve, 200 * 2 ** attempt));
+        if(status===429&&sheets){
+          const headers=error.response?.headers,raw=headers?.get?.('retry-after')??headers?.['retry-after'];
+          const seconds=Number(raw),date=Date.parse(raw);
+          const delay=Number.isFinite(seconds)&&seconds>0?seconds*1000:Number.isFinite(date)?date-shared.clock():60000;
+          shared.blockedUntil=Math.max(shared.blockedUntil,shared.clock()+Math.max(60000,Math.min(120000,delay)));
+          throw quotaError();
+        }
+        if ([500, 502, 503, 504].includes(status) && attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt + Math.floor(Math.random()*250)));
           continue;
         }
         // Never log/return the upstream error: it may contain OAuth headers or client secrets.
@@ -73,16 +101,45 @@ export function googleStore(config, injectedClient, requestMetadata = null) {
   async function table(name) {
     const contract = Object.hasOwn(schema,name) ? schema[name] : null;
     fail(contract, 'UNKNOWN_TABLE', 400);
+    if(requestTables){
+      if(!requestTables.has(name)){
+        requestTables.set(name,new Promise((resolve,reject)=>pending.push({name,resolve,reject})));
+        if(!scheduled){scheduled=true;queueMicrotask(flushTables);}
+      }
+      return requestTables.get(name);
+    }
     const meta = await metadata(config.applicationSheetId);
     const range = tableRange(name,meta);
     const url = new URL(`https://sheets.googleapis.com/v4/spreadsheets/${config.applicationSheetId}/values/${encodeURIComponent(range)}`);
     url.searchParams.set('valueRenderOption', 'UNFORMATTED_VALUE');
     return parseTable(name, (await get(url.href)).values || []);
   }
+  async function flushTables(){
+    const jobs=pending;pending=[];scheduled=false;
+    try{
+      const meta=await metadata(config.applicationSheetId);
+      // Bound each batch, even when a diagnostic requests every known table.
+      for(let start=0;start<jobs.length;start+=12){
+        const group=jobs.slice(start,start+12);
+        const url=new URL(`https://sheets.googleapis.com/v4/spreadsheets/${config.applicationSheetId}/values:batchGet`);
+        url.searchParams.set('valueRenderOption','UNFORMATTED_VALUE');
+        for(const job of group)url.searchParams.append('ranges',tableRange(job.name,meta));
+        const data=await get(url.href);
+        fail(Array.isArray(data.valueRanges)&&data.valueRanges.length===group.length,'SCHEMA_MISMATCH');
+        const rows=group.map((job,i)=>parseTable(job.name,data.valueRanges[i].values||[]));
+        group.forEach((job,i)=>job.resolve(rows[i]));
+      }
+    }catch(error){jobs.forEach(job=>job.reject(error));}
+  }
+  async function prefetch(names){
+    fail(Array.isArray(names)&&names.length>0&&names.length<=32&&new Set(names).size===names.length&&names.every(name=>Object.hasOwn(schema,name)),'INVALID_TABLE_BATCH',400);
+    await Promise.all(names.map(table));
+  }
   async function tables(names) {
     // Fixed small set of reference tables only. Accounts and assessment rows stay separate.
     const allowed=['mou_categories','mou_items','mou_settings','mou_agencies'];
     fail(Array.isArray(names)&&names.length>0&&names.length<=4&&new Set(names).size===names.length&&names.every(n=>allowed.includes(n)),'INVALID_TABLE_BATCH',400);
+    if(requestTables)return Promise.all(names.map(table));
     const meta=await metadata(config.applicationSheetId);
     const ranges=names.map(name=>tableRange(name,meta));
     const url=new URL(`https://sheets.googleapis.com/v4/spreadsheets/${config.applicationSheetId}/values:batchGet`);
@@ -93,7 +150,7 @@ export function googleStore(config, injectedClient, requestMetadata = null) {
     // batchGet guarantees response order; every block still has its own exact header check.
     return names.map((name,i)=>parseTable(name,data.valueRanges[i].values||[]));
   }
-  async function directory(ids) {
+  async function readDirectory(ids) {
     fail(Array.isArray(ids) && ids.length <= 100 && ids.every(id=>typeof id==='string' && /^\d{5}$/.test(id)), 'INVALID_HOSPITAL_ID',400);
     const wanted=new Set(ids);
     if(!wanted.size)return [];
@@ -132,6 +189,25 @@ export function googleStore(config, injectedClient, requestMetadata = null) {
       return {id:row[3],name:row[0],type:String(row[6]||'')};
     });
   }
+  async function directory(ids){
+    fail(Array.isArray(ids)&&ids.length<=100&&ids.every(id=>typeof id==='string'&&/^\d{5}$/.test(id)),'INVALID_HOSPITAL_ID',400);
+    const wanted=[...new Set(ids)];if(!wanted.length)return [];
+    const now=shared.clock();
+    for(const [id,entry] of shared.units)if(entry.expires<=now)shared.units.delete(id);
+    const missing=wanted.filter(id=>!shared.units.has(id));
+    if(missing.length){
+      const key=[...missing].sort().join('|');
+      if(!shared.unitLoads.has(key)){
+        const load=readDirectory(missing).then(rows=>{
+          for(const unit of rows){if(shared.units.size>=1000)shared.units.delete(shared.units.keys().next().value);shared.units.set(unit.id,{value:unit,expires:shared.clock()+300000});}
+        });
+        shared.unitLoads.set(key,load);load.finally(()=>shared.unitLoads.delete(key)).catch(()=>{});
+      }
+      await shared.unitLoads.get(key);
+    }
+    // Cache contains only id/name/type. It never contains accounts, roles or evidence.
+    return wanted.flatMap(id=>shared.units.has(id)?[{...shared.units.get(id).value}]:[]);
+  }
   async function resource(id) {
     const url = new URL(`https://www.googleapis.com/drive/v3/files/${id}`);
     url.searchParams.set('fields', 'id,mimeType,trashed,shared,owners(emailAddress),permissions(type,role,emailAddress)');
@@ -153,11 +229,13 @@ export function googleStore(config, injectedClient, requestMetadata = null) {
         && file.permissions[0].emailAddress === config.ownerEmail, 'RESOURCE_NOT_PRIVATE');
     }
     const checkedTables = [];
+    const scoped=googleStore(config,client,new Map(),shared);
+    await scoped.prefetch(Object.keys(schema));
     for (const name of Object.keys(schema)) {
-      const records = await table(name);
+      const records = await scoped.table(name);
       checkedTables.push({ name, rows: records.length });
     }
     return { connected: true, privateResources: true, readOnly: true, checkedTables };
   }
-  return { table, tables, directory, verifyResources, forRequest:()=>googleStore(config,client,new Map()) };
+  return { table, tables, ...(requestTables?{prefetch}:{}), directory, verifyResources, forRequest:()=>googleStore(config,client,new Map(),shared) };
 }

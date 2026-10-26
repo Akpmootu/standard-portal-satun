@@ -6,6 +6,8 @@ import {serviceSlot} from './service-rules.js';
 export const integrationHash=v=>createHash('sha256').update(typeof v==='string'?v:JSON.stringify(v)).digest('hex');
 export function reportSummary(report){return {module:report.module,year:report.module==='mou'?report.year:null,units:report.results.map(r=>({hospitalId:r.unit.id,total:r.total,completed:r.completed,inProgress:r.inProgress,cannotDo:r.cannotDo,none:r.none,approved:r.approved,rejected:r.rejected,pending:r.pending}))};}
 export async function integrationReports(store,access,year){
+ fail(access?.status==='active','APPROVAL_REQUIRED',403);fail(access.user.role!=='reviewer','MODULE_SCOPE_REQUIRED',403);
+ await store.prefetch?.(['mou_agencies','mou_categories','mou_items','mou_settings','mou_progress','ctam_items','ctam_progress','rg12_sub_items','rg12_progress','rg12_comments']);
  const cache=new Map(),directories=new Map(),reference=new Set(['mou_agencies','mou_items','mou_categories','mou_settings','ctam_items','rg12_sub_items']);
  const scoped={table:name=>{if(!reference.has(name))return store.table(name);if(!cache.has(name))cache.set(name,store.table(name));return cache.get(name);},directory:ids=>{const key=ids.join('|');if(!directories.has(key))directories.set(key,store.directory(ids));return directories.get(key);}};
  const reports=[];for(const module of ['mou','ctam','hait'])reports.push(reportSummary(await loadReport(scoped,access,{module,year})));
