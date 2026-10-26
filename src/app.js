@@ -1,4 +1,5 @@
 import {registrationUnits} from './registration-units.js';
+import {evidenceInventory,evidenceManagerPage,manageEvidence} from './evidence-manager.js';
 import {loadPublicProgress,publicProgressCache} from './public-progress.js';
 import {landingPage} from './landing-page.js';
 import {loadOverview,overviewPage} from './overview-page.js';
@@ -39,7 +40,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','evidence-files.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 const landingAssets=new Map([
  ['/satun-coast.webp',{type:'image/webp',body:readFile(new URL('../public/satun-coast.webp',import.meta.url))}],
  ['/satun-thai.woff2',{type:'font/woff2',body:readFile(new URL('../public/satun-thai.woff2',import.meta.url))}],
@@ -143,6 +144,16 @@ export function createApp(config, dependencies = {}) {
         return redirect('/');
       }
       const identity = await codec.read('session', req.headers.cookie);
+      if(req.method==='GET'&&url.pathname==='/files'){
+        if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store),tables=await evidenceInventory(store,access);
+        res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(evidenceManagerPage(tables,access,{csrf:identity.csrf,enabled:config.evidence.enabled&&Boolean(config.evidence.refreshToken)&&writerConfigured(config)}));
+      }
+      if(req.method==='POST'&&['/api/files/discard','/api/files/reconcile'].includes(url.pathname)){
+        fail(writerConfigured(config)&&config.evidence.enabled&&config.evidence.refreshToken,'EVIDENCE_UPLOAD_DISABLED');fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
+        const {csrf,...input}=await writeBody(req,6000);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);const access=await resolveAccess(identity,store);
+        return json(200,await manageEvidence({input,identity,access,store,writer,drive,action:url.pathname.endsWith('/discard')?'discard':'reconcile'}));
+      }
       if(url.pathname==='/api/registration/units'){
         fail(req.method==='GET','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_REGISTRATION_QUERY',400);fail(identity,'SIGN_IN_REQUIRED',401);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
         return json(200,{units:registrationUnits(await store.table('registration_requests'),await store.directory([...MOU_HOSPITAL_IDS])),checkedAt:new Date().toISOString()});

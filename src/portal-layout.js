@@ -8,6 +8,7 @@ export function portalNavigation({path='/',role='hospital',hospitalId='',year=''
  const groups=[['พื้นที่ทำงาน',[
   ['/overview','ภาพรวมระบบ','overview',year?'/overview?year='+encodeURIComponent(year):'/overview'],['/dashboard','ภาพรวม MOU','chart',scoped('/dashboard')],['/mou','ประเมิน MOU','assessment',scoped('/mou')],
   ...(role!=='reviewer'?[['/ctam','ประเมิน CTAM','shield'],['/hait','ประเมิน HAIT','hospital']]:[]),
+  ...(role!=='reviewer'?[['/files','ไฟล์หลักฐาน / พื้นที่','archive']]:[]),
   ...(['admin','reviewer'].includes(role)?[['/mou/reviews','งานรอตรวจ MOU','check',year?'/mou/reviews?year='+encodeURIComponent(year):'/mou/reviews'],['/mou/history','ประวัติการตรวจ','clock',scoped('/mou/history')]]:[]),
   ['/reports','รายงานและส่งออก','chart'],['/resources','คู่มือประเมิน','book'],['https://bdh-service.moph.go.th/smarthosp2569/','Smart Hospital ↗','external'],['/news','ประกาศ','news'],['/notifications','การแจ้งเตือน','bell']
  ]],...(role==='admin'?[['จัดการระบบ',[

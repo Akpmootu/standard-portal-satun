@@ -7,8 +7,9 @@ export function validUploadLocation(value){try{const u=new URL(value);return u.p
 export function privateFile(file,config,mime){
  fail(file?.mimeType===mime&&!file.trashed&&file.shared===false&&file.owners?.length===1&&file.owners[0].emailAddress===config.ownerEmail&&file.permissions?.length===1&&file.permissions[0].role==='owner'&&file.permissions[0].emailAddress===config.ownerEmail,'EVIDENCE_NOT_PRIVATE',403);
 }
-export function evidenceDrive(config,injectedClient){
+export function evidenceDrive(config,injectedClient,injectedStorageClient){
  const client=injectedClient||new OAuth2Client(config.storage.clientId,config.storage.clientSecret);if(!injectedClient)client.setCredentials({refresh_token:config.evidence.refreshToken});
+ const storageClient=injectedStorageClient||new OAuth2Client(config.storage.clientId,config.storage.clientSecret);if(!injectedStorageClient)storageClient.setCredentials({refresh_token:config.storage.refreshToken});
  async function request(options){try{return await client.request({timeout:30000,retry:false,maxRedirects:0,...options});}catch{throw new PortalError('EVIDENCE_DRIVE_UNAVAILABLE',503);}}
  const fileFields='id,mimeType,size,sha256Checksum,trashed,shared,parents,owners(emailAddress),permissions(role,emailAddress),appProperties';
  async function metadata(id){fail(/^[A-Za-z0-9_-]{10,200}$/.test(id),'INVALID_FILE_ID',400);return (await request({url:'https://www.googleapis.com/drive/v3/files/'+id,method:'GET',params:{fields:fileFields}})).data;}
@@ -33,5 +34,22 @@ export function evidenceDrive(config,injectedClient){
   const result=await request({url:'https://www.googleapis.com/drive/v3/files/'+file.drive_file_id,method:'GET',params:{alt:'media'},responseType:'arraybuffer'}),bytes=Buffer.from(result.data);
   fail(bytes.length===file.size_bytes&&evidenceSignature(bytes,mime)&&createHash('sha256').update(bytes).digest('hex')===file.sha256,'EVIDENCE_CHECKSUM_MISMATCH',409);return bytes;
  }
- return {metadata,generateId,begin,chunk,status,download,verify:async file=>{await download(file);return true;}};
+ async function trash(file){
+  const m=await metadata(file.drive_file_id);
+  privateFile({...m,trashed:false},config,file.mime_type);
+  fail(m.parents?.length===1&&m.parents[0]===config.evidenceFolderId&&m.appProperties?.portalFileId===file.id,'INVALID_EVIDENCE_FILE',409);
+  if(m.trashed===true)return;
+  const result=await request({url:'https://www.googleapis.com/drive/v3/files/'+file.drive_file_id,method:'PATCH',params:{fields:'id,trashed'},data:{trashed:true}});
+  fail(result.data?.id===file.drive_file_id&&result.data?.trashed===true,'EVIDENCE_TRASH_UNCONFIRMED',503);
+ }
+ async function confirmMissing(file){
+  fail(/^[A-Za-z0-9_-]{10,200}$/.test(file.drive_file_id),'INVALID_FILE_ID',400);
+  try{
+   const owner=await storageClient.request({url:'https://www.googleapis.com/drive/v3/about',method:'GET',params:{fields:'user(emailAddress)'},timeout:15000,retry:false,maxRedirects:0});
+   fail(owner.data?.user?.emailAddress===config.ownerEmail,'EVIDENCE_DRIVE_UNAVAILABLE',503);
+   const response=await storageClient.request({url:'https://www.googleapis.com/drive/v3/files/'+file.drive_file_id,method:'GET',params:{fields:'id'},timeout:15000,retry:false,maxRedirects:0,validateStatus:status=>status===200||status===404});
+   fail(response.status===200||response.status===404,'EVIDENCE_DRIVE_UNAVAILABLE',503);return response.status===404;
+  }catch{throw new PortalError('EVIDENCE_DRIVE_UNAVAILABLE',503);}
+ }
+ return {metadata,generateId,begin,chunk,status,download,trash,confirmMissing,verify:async file=>{await download(file);return true;}};
 }

@@ -5,11 +5,13 @@ function writerAssert(ok,code){if(!ok)throw new Error(code);}
 function writerSame(a,b){if(typeof a!=='string'||typeof b!=='string'||a.length!==b.length)return false;var diff=0;for(var i=0;i<a.length;i++)diff|=a.charCodeAt(i)^b.charCodeAt(i);return diff===0;}
 function writerHash(s){return writerHex(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,s,Utilities.Charset.UTF_8));}
 function writerOutput(value){return ContentService.createTextOutput(JSON.stringify(value)).setMimeType(ContentService.MimeType.JSON);}
-function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED'});}
+function doGet(){return writerOutput({ok:false,error:'POST_REQUIRED',evidencePolicy:2});}
 function writerColumn(n){var s='';for(;n>0;n=Math.floor((n-1)/26))s=String.fromCharCode(65+(n-1)%26)+s;return s;}
-function writerRead(sheetId,module){
+function writerRead(sheetId,module,evidence){
   var tableNames=WriterRules.WRITE_TABLES.concat(ManagementRules.MANAGEMENT_TABLES,['files']);
   if(module){var def=ModuleRules.MODULES[module];writerAssert(def,'UNKNOWN_MODULE');tableNames=tableNames.concat([def.catalog,def.progress,def.history]);}
+  if(evidence)tableNames=tableNames.concat(['ctam_progress','rg12_progress']);
+  tableNames=Array.from(new Set(tableNames));
   var meta=Sheets.Spreadsheets.get(sheetId,{fields:'spreadsheetId,sheets(properties(sheetId,title,gridProperties))'});
   var tabs={},ranges=[];
   tableNames.forEach(function(name){
@@ -75,7 +77,7 @@ function doPost(e){
     var account=payload.operation==='registration',assessment=payload.operation==='assessment',management=payload.operation==='management',migration=payload.operation==='migration',evidence=payload.operation==='evidence',service=payload.operation==='service';
     writerAssert(account||assessment||management||migration||evidence||service||!payload.operation,'INVALID_ENVELOPE');
     var command=service?ServiceRules.normalizeServiceCommand(payload.command):account?RegistrationRules.normalizeRegistrationCommand(payload.command):assessment?ModuleRules.normalizeModuleCommand(payload.command):management?ManagementRules.normalizeManagementCommand(payload.command):migration?MigrationRules.normalizeMigrationCommand(payload.command):evidence?EvidenceRules.normalizeEvidenceCommand(payload.command):WriterRules.normalizeMouCommand(payload.command);
-    var snapshot=writerRead(sheetId,assessment?command.module:evidence&&command.action==='reserve'&&command.module!=='mou'?command.module:null),hash=writerHash(JSON.stringify(command));
+    var snapshot=writerRead(sheetId,assessment?command.module:evidence&&command.action==='reserve'&&command.module!=='mou'?command.module:null,evidence),hash=writerHash(JSON.stringify(command));
     var plan=service?ServiceRules.planService(snapshot.tables,payload.identity,command,hash,now):account?RegistrationRules.planRegistration(snapshot.tables,payload.identity,command,hash,now):assessment?ModuleRules.planModuleWrite(snapshot.tables,payload.identity,command,hash,now):management?ManagementRules.planManagement(snapshot.tables,payload.identity,command,hash,now):migration?MigrationRules.planMigration(snapshot.tables,payload.identity,command,hash,now):evidence?EvidenceRules.planEvidence(snapshot.tables,payload.identity,command,hash,now):WriterRules.planMouWrite(snapshot.tables,payload.identity,command,hash,now);
     if(plan.replayed)return writerOutput(plan.result);
     if(command.action==='review'||command.action==='response'){

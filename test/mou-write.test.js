@@ -72,7 +72,7 @@ test('writer client signs exact command and follows only safe result redirect wi
 function gasFixture(){
  const data=reviewerFixture(),headers={...Object.fromEntries(Object.entries(schema).map(([n,v])=>[n,v.headers])),...WRITE_LOG_HEADERS};
  const grids={},ids={},props=new Map([['MOU_WRITER_SECRET','a'.repeat(64)],['MOU_SHEET_ID','1dWXmgRRg1yP39OSxl2PmFarlH1xAi1gaKy-rJc4Ve7k'],['MOU_WRITES_ENABLED','1']]);
- const runtimeTables=[...WRITE_TABLES,'announcements','notifications','rg12_comments','rg12_chapters','files'];
+ const runtimeTables=[...WRITE_TABLES,'announcements','notifications','rg12_comments','rg12_chapters','files','ctam_progress','rg12_progress'];
  runtimeTables.forEach((n,i)=>{ids[n]=i+1;grids[n]=[headers[n],...(data[n]||[]).map(r=>headers[n].map(h=>r[h]??''))];});
  let held=false,blocked=false,batches=0,failCommit=false;
  class FixtureDate extends Date {
@@ -107,6 +107,19 @@ test('bundled service reserves atomically, rejects duplicate sends and settles o
  const done={requestId:randomUUID(),action:'settle',reservationId:r.recordId,outcome:'sent',externalId:'123'};
  assert.equal(post(done).ok,true);assert.equal(g.batches,2);
  assert.equal(post({...done,requestId:randomUUID()}).error,'SERVICE_ALREADY_SETTLED');assert.equal(g.batches,2);
+});
+
+test('bundled evidence quotas include completed allocations and retirement checks every module under lock',()=>{
+ const g=gasFixture();let file;
+ for(let i=0;i<10;i++){
+  const c={requestId:randomUUID(),action:'reserve',saveRequestId:randomUUID(),module:'mou',hospitalId:'09625',itemId:'1',fiscalYear:2569,progressVersion:1,filename:'test.png',size:12,sha256:'a'.repeat(64),driveId:'managedDriveFile-'+i};
+  const result=g.post(c,admin,now.getTime(),false,'evidence');assert.equal(result.ok,true);file=result.recordId;
+  assert.equal(g.post({requestId:randomUUID(),action:'verify',fileId:file},admin,now.getTime(),false,'evidence').ok,true);
+ }
+ const before=g.batches,c={requestId:randomUUID(),action:'reserve',saveRequestId:randomUUID(),module:'mou',hospitalId:'09625',itemId:'1',fiscalYear:2569,progressVersion:1,filename:'test.png',size:12,sha256:'a'.repeat(64),driveId:'managedDriveFile-extra'};
+ assert.equal(g.post(c,admin,now.getTime(),false,'evidence').error,'EVIDENCE_DAILY_QUOTA_REACHED');assert.equal(g.batches,before);
+ const headers=g.grids.rg12_progress[0];g.grids.rg12_progress.push(headers.map(h=>({id:'reference',hospital_id:'09625',sub_item_id:'1',evidence_file:file}[h]??'')));
+ assert.equal(g.post({requestId:randomUUID(),action:'retire',fileId:file,expectedVersion:2},admin,now.getTime(),false,'evidence').error,'FILE_IN_USE');assert.equal(g.batches,before);assert.equal(g.held,false);
 });
 
 test('bundled AI reservations enforce hospital scope and per-account daily budget',()=>{

@@ -15,6 +15,52 @@ const admin={provider:'google',subject:'admin-sub'},hospital={provider:'google',
 const fixture=()=>({...writeFixture(),files:[]});
 const command=()=>({requestId:randomUUID(),action:'reserve',saveRequestId:randomUUID(),module:'mou',hospitalId:'09625',itemId:'1',fiscalYear:2569,progressVersion:1,filename:'หลักฐาน.jpg',size:12,sha256:sha,driveId:'privateDriveFileID123'});
 function commit(t,p){for(const c of p.changes){const key=c.table==='write_requests'?'request_id':'id',i=t[c.table].findIndex(r=>r[key]===c.record[key]);if(i<0)t[c.table].push(c.record);else t[c.table][i]=c.record;}}
+function storedFile(overrides={}){return {id:'file-'+randomUUID(),drive_file_id:'managedDriveFile123',hospital_id:'09625',record_type:'mou',record_id:'unattached',original_filename:'old.pdf',mime_type:'application/pdf',size_bytes:12,sha256:sha,upload_state:'complete',created_by:'u2',created_at:'2026-01-01 09:00:00',_version:2,...overrides};}
+
+test('completed but unattached files still consume the outstanding quota',()=>{
+ const t=fixture();t.files=Array.from({length:20},()=>storedFile());
+ assert.throws(()=>planEvidence(t,admin,command(),sha),{code:'UPLOAD_LIMIT_REACHED'});
+});
+test('retained bytes enforce account, unit and portal ceilings even after trashing',()=>{
+ for(const [files,error] of [
+  [Array.from({length:5},()=>storedFile({size_bytes:10*1024*1024,upload_state:'trashed'})),'EVIDENCE_ACCOUNT_QUOTA_REACHED'],
+  [Array.from({length:20},()=>storedFile({size_bytes:10*1024*1024,created_by:'other'})),'EVIDENCE_UNIT_QUOTA_REACHED'],
+  [Array.from({length:103},()=>storedFile({size_bytes:10*1024*1024,created_by:'other',hospital_id:'09611'})),'EVIDENCE_PORTAL_QUOTA_REACHED']
+ ]){const t=fixture();t.files=files;assert.throws(()=>planEvidence(t,admin,command(),sha),{code:error});}
+});
+test('daily allocation includes trashed files and refuses malformed stored sizes',()=>{
+ const t=fixture();t.files=Array.from({length:10},()=>storedFile({created_at:'2026-10-26 09:00:00',upload_state:'trashed'}));
+ assert.throws(()=>planEvidence(t,admin,command(),sha,new Date('2026-10-26T02:00:00Z')),{code:'EVIDENCE_DAILY_QUOTA_REACHED'});
+ t.files=[storedFile({size_bytes:-1})];assert.throws(()=>planEvidence(t,admin,command(),sha),{code:'EVIDENCE_QUOTA_INVALID'});
+});
+test('retirement blocks attachment before Drive is touched and preserves references in all modules',()=>{
+ const t=fixture(),f=storedFile();t.files=[f];t.ctam_progress=[];t.rg12_progress=[];
+ const retire={requestId:randomUUID(),action:'retire',fileId:f.id,expectedVersion:2};
+ t.ctam_progress=[{evidence_file:f.id}];assert.throws(()=>planEvidence(t,admin,retire,sha),{code:'FILE_IN_USE'});
+ t.ctam_progress=[];commit(t,planEvidence(t,admin,retire,sha));assert.equal(t.files[0].upload_state,'retiring');
+ const save={requestId:randomUUID(),action:'save',hospitalId:'09625',itemId:'1',fiscalYear:2569,expectedVersion:1,status:'completed',detail:'test',evidenceLink:'',evidenceFileId:f.id};
+ assert.throws(()=>planMouWrite(t,admin,save,sha),{code:'FILE_ACCESS_DENIED'});
+ assert.throws(()=>planEvidence(t,hospital,{...retire,requestId:randomUUID(),expectedVersion:3},sha),{code:'FILE_ACCESS_DENIED'});
+ commit(t,planEvidence(t,admin,{requestId:randomUUID(),action:'trashComplete',fileId:f.id,expectedVersion:3},sha));assert.equal(t.files[0].upload_state,'trashed');
+ assert.equal(planEvidence(t,admin,retire,sha).replayed,true);
+});
+test('an old upload token cannot continue writing after its file is retired',async()=>{
+ const f=storedFile({created_by:'u1',upload_state:'retiring'}),access={status:'active',user:{id:'u1',role:'hospital',hospitalId:'09625'}};
+ await assert.rejects(uploadContext({token:'test',identity:hospital,access,store:{table:async()=>[f]},codec:{name:()=> 'upload',read:async()=>({subject:hospital.subject,actorId:'u1',hospitalId:'09625',module:'mou',fileId:f.id,size:12})}}),{code:'FILE_STATE_CONFLICT'});
+});
+
+test('Drive cleanup only trashes a private managed file; absence proof uses owner metadata read',async()=>{
+ const config={storage:{clientId:'fake',clientSecret:'fake'},evidence:{},ownerEmail:'owner@example.test',evidenceFolderId:'folderID12345'},f=storedFile(),calls=[];
+ let shared=false,trashed=false,missing=false,proofOwner=config.ownerEmail;
+ const meta=()=>({mimeType:'application/pdf',shared,trashed,size:12,parents:[config.evidenceFolderId],owners:[{emailAddress:config.ownerEmail}],permissions:[{role:'owner',emailAddress:config.ownerEmail}],appProperties:{portalFileId:f.id}});
+ const drive=evidenceDrive(config,{request:async o=>{calls.push(o);if(o.method==='PATCH'){trashed=true;return {data:{id:f.drive_file_id,trashed:true}};}return {status:200,data:meta()};}},{request:async o=>o.url.endsWith('/about')?{status:200,data:{user:{emailAddress:proofOwner}}}:{status:missing?404:200}});
+ assert.equal(typeof drive.trash,'function');assert.equal(typeof drive.confirmMissing,'function');
+ shared=true;await assert.rejects(drive.trash(f),{code:'EVIDENCE_NOT_PRIVATE'});assert.ok(!calls.some(c=>c.method==='PATCH'));
+ shared=false;await drive.trash(f);await drive.trash(f);
+ assert.equal(calls.filter(c=>c.method==='PATCH').length,1);assert.ok(calls.every(c=>c.method!=='DELETE'));
+ assert.equal(await drive.confirmMissing(f),false);missing=true;assert.equal(await drive.confirmMissing(f),true);
+ proofOwner='different@example.test';await assert.rejects(drive.confirmMissing(f),{code:'EVIDENCE_DRIVE_UNAVAILABLE'});
+});
 test('new evidence accepts bounded images and rejects PDF uploads without changing legacy links',()=>{
  for(const filename of ['proof.jpg','proof.JPEG','proof.png','proof.webp']){
   const c={...command(),filename,size:MAX_IMAGE_BYTES},p=planEvidence(fixture(),admin,c,sha);
