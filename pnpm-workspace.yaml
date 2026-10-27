@@ -1,0 +1,4 @@
+packages:
+  - .
+frozenLockfile: true
+ignoreScripts: true

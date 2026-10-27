@@ -50,4 +50,4 @@ GET/HEAD ที่ขอ HTML ได้หน้า error ภาษาไทย�
 
 ## ขั้นที่ 6 — Frozen dependencies
 
-ใช้ pnpm11.25.0 และ Node24.x, CI ใช้ frozen-lockfile/ignore-scripts ตาม pnpm-lock.yaml เดิม กำหนด installCommand ให้ Vercel ใช้รุ่นเดียวกัน ตรวจ clean install และ manifestไม่ตรงlockถูกปฏิเสธจริง พร้อม tests229รายการจากชุดติดตั้งแยกผ่าน ตรวจ Transitions เดิมควบคู่โดยไม่เพิ่มUIที่ไม่เกี่ยวกับงาน ดู FROZEN_INSTALL_TH.md ขั้นต่อไปคือขั้นที่7 ความจุตารางและ retention
+ใช้ pnpm11.25.0 และ Node24.x, CI ใช้ frozen-lockfile/ignore-scripts ตาม pnpm-lock.yaml เดิม กำหนด packageManager กับ pnpm-workspace.yaml ให้ Vercel ใช้รุ่นเดียวกันและบังคับ frozen/ignoreScripts ตรวจ clean install และ manifestไม่ตรงlockถูกปฏิเสธจริง พร้อม tests229รายการจากชุดติดตั้งแยกผ่าน ตรวจ Transitions เดิมควบคู่โดยไม่เพิ่มUIที่ไม่เกี่ยวกับงาน ดู FROZEN_INSTALL_TH.md ขั้นต่อไปคือขั้นที่7 ความจุตารางและ retention

@@ -22,6 +22,5 @@
       "path": "/api/integrations/cron",
       "schedule": "0 2 * * *"
     }
-  ],
-  "installCommand": "npx --yes --package=pnpm@11.25.0 pnpm install --frozen-lockfile --ignore-scripts"
+  ]
 }

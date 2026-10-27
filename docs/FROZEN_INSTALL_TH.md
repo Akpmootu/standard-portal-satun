@@ -2,7 +2,7 @@
 
 เริ่มจาก 1720cd1 วันที่ 27 ตุลาคม 2569
 
-ใช้ pnpm-lock.yaml เดิมเป็นแหล่งเดียว ไม่เปลี่ยนเวอร์ชัน application dependencies กำหนด packageManager pnpm@11.25.0 (รุ่นที่มีในเครื่องและตรวจ registry แล้ว) กับ Node24.x เปลี่ยน CI จาก npm install เป็น pnpm frozen/ignore-scripts และกำหนดคำสั่ง Vercel ให้ใช้ pnpm รุ่นเดียวกัน ตรวจ build logs ว่าใช้จริง ไม่อนุมานจาก deploy Ready อย่างเดียว
+ใช้ pnpm-lock.yaml เดิมเป็นแหล่งเดียว ไม่เปลี่ยนเวอร์ชัน application dependencies กำหนด packageManager pnpm@11.25.0 (รุ่นที่มีในเครื่องและตรวจ registry แล้ว) กับ Node24.x เปลี่ยน CI จาก npm install เป็น pnpm frozen/ignore-scripts และกำหนด pnpm-workspace.yaml ให้ frozenLockfile/ignoreScripts เป็น true สำหรับ Vercel legacy builds ด้วย ตรวจ build logs ว่าใช้จริง ไม่อนุมานจาก deploy Ready อย่างเดียว
 
 ตรวจรับด้วย clean install ในโฟลเดอร์แยก, hash lockfileก่อน/หลังตรงกัน, manifestไม่ตรงlockต้องติดตั้งล้มเหลว, tests/source/buildผ่านด้วยdependencyจากclean install และ CI/Vercelproductionlogsตรงรุ่น ไม่มีการเพิ่มsubscription/เปลี่ยนสิทธิ์/แก้ข้อมูลประเมิน
 
@@ -19,3 +19,8 @@
 - การตรวจ Transitions เดิมพบ error button150ms, registration feedback150ms/4px/blur2px และ reduced-motion; ขั้นนี้ไม่มี UI diff หรือเพิ่ม motion dependency
 - Node pin เป็น major24.x ไม่รับรอง patch/ระบบปฏิบัติการเหมือนกันทุกเครื่อง และ GitHub/Vercel build tooling ภายนอกยังอยู่นอก application lockfile
 - ตรวจ diff ซ้ำโดยผู้เขียนเอง ไม่มี independent reviewer ในรอบนี้
+
+## ยืนยันนโยบายสำหรับ legacy Vercel builds
+ตรวจ build-utils/@vercel/node ที่ติดตั้งและ build log แล้วพบ legacy builds ไม่ใช้ installCommand override จึงใช้ pnpm-workspace.yaml กำหนด frozenLockfile:true/ignoreScripts:true และ packages เฉพาะจุดราก ยกเลิก installCommand ที่ไม่มีผล ยืนยัน config get ได้ true ทั้งคู่, bare pnpm install ปฏิเสธ manifestไม่ตรงlock และ postinstall ชุดจำลองไม่ถูกรันแม้ติดตั้งโดยไม่ใส่ flags
+
+เมื่อตั้งใจเปลี่ยน dependencies ให้ใช้ pnpm install --no-frozen-lockfile ในเครื่องพัฒนาแล้วตรวจ diff/commit lockfile คู่กับ manifest; CI และ deployment ยังคงบังคับ frozen
