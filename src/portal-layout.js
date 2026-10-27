@@ -12,7 +12,7 @@ export function portalNavigation({path='/',role='hospital',hospitalId='',year=''
   ...(['admin','reviewer'].includes(role)?[['/mou/reviews','งานรอตรวจ MOU','check',year?'/mou/reviews?year='+encodeURIComponent(year):'/mou/reviews'],['/mou/history','ประวัติการตรวจ','clock',scoped('/mou/history')]]:[]),
   ['/reports','รายงานและส่งออก','chart'],['/resources','คู่มือประเมิน','book'],['https://bdh-service.moph.go.th/smarthosp2569/','Smart Hospital ↗','external'],['/news','ประกาศ','news'],['/notifications','การแจ้งเตือน','bell']
  ]],...(role==='admin'?[['จัดการระบบ',[
-  ['/admin/registrations','อนุมัติผู้ใช้งาน','users'],['/admin/users','จัดการผู้ใช้งาน','users'],['/admin/settings','รอบประเมิน MOU','clock'],['/admin/archive','ข้อมูลระบบเดิม','archive'],['/admin/integrations','การแจ้งเตือน / AI','settings']
+  ['/admin/registrations','อนุมัติผู้ใช้งาน','users'],['/admin/users','จัดการผู้ใช้งาน','users'],['/admin/settings','รอบประเมิน MOU','clock'],['/admin/storage','ความจุและเก็บย้อนหลัง','archive'],['/admin/archive','ข้อมูลระบบเดิม','archive'],['/admin/integrations','การแจ้งเตือน / AI','settings']
  ]]]:[])];
  return groups.map(([label,links])=>`<p class="portal-nav-label">${label}</p>${links.map(([p,text,icon,url])=>{const selected=path===p||(p==='/mou'&&path==='/mou/action')||(p==='/ctam'&&path.startsWith('/ctam/'))||(p==='/hait'&&path.startsWith('/hait/'));return `<a class="portal-nav-link${selected?' selected':''}" href="${esc(url||p)}"${p.startsWith('https://')?' target="_blank" rel="noopener noreferrer"':''}${selected?' aria-current="page"':''}><span aria-hidden="true">${portalIcon(icon)}</span>${text}</a>`;}).join('')}`).join('');
 }

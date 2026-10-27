@@ -208,6 +208,37 @@ export function googleStore(config, injectedClient, requestMetadata = null, shar
     // Cache contains only id/name/type. It never contains accounts, roles or evidence.
     return wanted.flatMap(id=>shared.units.has(id)?[{...shared.units.get(id).value}]:[]);
   }
+
+  async function capacity(){
+    const meta=await metadata(config.applicationSheetId),reports=[],jobs=[];
+    fail(Array.isArray(meta.sheets),'SCHEMA_MISMATCH');
+    let allocatedCells=0;
+    for(const sheet of meta.sheets){const g=sheet.properties?.gridProperties;if(!Number.isSafeInteger(g?.rowCount)||g.rowCount<1||!Number.isSafeInteger(g?.columnCount)||g.columnCount<1){allocatedCells=null;break;}allocatedCells+=g.rowCount*g.columnCount;if(!Number.isSafeInteger(allocatedCells)){allocatedCells=null;break;}}
+    for(const [name,c] of Object.entries(schema)){
+      const matches=meta.sheets.filter(s=>s.properties?.title===name),g=matches[0]?.properties?.gridProperties;
+      const report={name,limit:c.maxRows,allocatedRows:Number.isSafeInteger(g?.rowCount)?g.rowCount:null,records:null,lastKeyRow:null,remainingUpperBound:null,percent:null,status:matches.length?'invalid':'missing',truncated:false};reports.push(report);
+      if(matches.length!==1||!Number.isSafeInteger(g?.rowCount)||g.rowCount<1||!Number.isSafeInteger(g?.columnCount)||g.columnCount<c.headers.length)continue;
+      report.truncated=g.rowCount>c.maxRows+1;
+      const end=Math.min(g.rowCount,c.maxRows+1),key=column(c.headers.indexOf(c.key||'id')+1);fail(key,'SCHEMA_MISMATCH');
+      jobs.push({report,kind:'header',range:`'${name}'!A1:${column(c.headers.length)}1`});
+      report.keys=[];
+      if(end>1)jobs.push({report,kind:'keys',range:`'${name}'!${key}2:${key}${end}`,max:end-1});
+    }
+    for(let start=0;start<jobs.length;start+=12){
+      const group=jobs.slice(start,start+12),url=new URL(`https://sheets.googleapis.com/v4/spreadsheets/${config.applicationSheetId}/values:batchGet`);url.searchParams.set('valueRenderOption','UNFORMATTED_VALUE');for(const job of group)url.searchParams.append('ranges',job.range);
+      const data=await get(url.href);fail(Array.isArray(data.valueRanges)&&data.valueRanges.length===group.length,'SCHEMA_MISMATCH');
+      group.forEach((job,i)=>{const values=data.valueRanges[i].values||[];if(job.kind==='header')job.report.headerValid=Array.isArray(values)&&values.length===1&&JSON.stringify(values[0])===JSON.stringify(schema[job.report.name].headers);else{job.report.keys=values;job.report.keysValid=Array.isArray(values)&&values.length<=job.max;}});
+    }
+    for(const report of reports){
+      if(!Object.hasOwn(report,'keys'))continue;
+      const keys=report.keys,seen=new Set();let last=0,valid=report.headerValid&&report.keysValid!==false;
+      if(Array.isArray(keys))keys.forEach((row,i)=>{if(!Array.isArray(row)||row.length>1){valid=false;return;}const key=row[0];if(key==null||key==='')return;if(typeof key!=='string'||seen.has(key)){valid=false;return;}seen.add(key);last=i+1;});else valid=false;
+      if(valid){report.records=seen.size;report.lastKeyRow=last;report.remainingUpperBound=report.truncated?0:Math.max(0,report.limit-last);report.percent=Math.round(last/report.limit*10000)/100;report.status=report.truncated?'blocked':last>=report.limit?'full':last/report.limit>=.9?'critical':last/report.limit>=.75?'warning':'ready';}
+      delete report.keys;delete report.headerValid;delete report.keysValid;
+    }
+    return {checkedAt:new Date(shared.clock()).toISOString(),allocatedCells,tables:reports};
+  }
+
   async function resource(id) {
     const url = new URL(`https://www.googleapis.com/drive/v3/files/${id}`);
     url.searchParams.set('fields', 'id,mimeType,trashed,shared,owners(emailAddress),permissions(type,role,emailAddress)');
@@ -237,5 +268,5 @@ export function googleStore(config, injectedClient, requestMetadata = null, shar
     }
     return { connected: true, privateResources: true, readOnly: true, checkedTables };
   }
-  return { table, tables, ...(requestTables?{prefetch}:{}), directory, verifyResources, forRequest:()=>googleStore(config,client,new Map(),shared) };
+  return { table, tables, capacity, ...(requestTables?{prefetch}:{}), directory, verifyResources, forRequest:()=>googleStore(config,client,new Map(),shared) };
 }

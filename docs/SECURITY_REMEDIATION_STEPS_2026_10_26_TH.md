@@ -51,3 +51,7 @@ GET/HEAD ที่ขอ HTML ได้หน้า error ภาษาไทย�
 ## ขั้นที่ 6 — Frozen dependencies
 
 ใช้ pnpm11.25.0 และ Node24.x, CI ใช้ frozen-lockfile/ignore-scripts ตาม pnpm-lock.yaml เดิม กำหนด packageManager กับ pnpm-workspace.yaml ให้ Vercel ใช้รุ่นเดียวกันและบังคับ frozen/ignoreScripts ตรวจ clean install และ manifestไม่ตรงlockถูกปฏิเสธจริง พร้อม tests229รายการจากชุดติดตั้งแยกผ่าน ตรวจ Transitions เดิมควบคู่โดยไม่เพิ่มUIที่ไม่เกี่ยวกับงาน ดู FROZEN_INSTALL_TH.md ขั้นต่อไปคือขั้นที่7 ความจุตารางและ retention
+
+## ขั้นที่ 7 — ความจุและ retention
+
+เพิ่มหน้าแอดมิน /admin/storage และ JSONรายงาน ใช้หัวตาราง/คอลัมน์key25ตารางแบบboundedbatch เตือน75%/90% ตรวจกริดเกินเพดานแยกจากจำนวนkey ไม่ส่งkeyหรือรายละเอียดส่วนบุคคลในรายงาน คงประวัติ/idempotency receiptsออนไลน์ทั้งหมด ออกแบบลำดับbackup/restore/archive-aware lookupก่อนบำรุงรักษา ไม่เปิดpurgeอัตโนมัติ Tests233ผ่าน ดู STORAGE_CAPACITY_RETENTION_TH.md ขั้นต่อไปคือขั้นที่8 security eventsและการแจ้งเตือนที่ไม่เก็บความลับ

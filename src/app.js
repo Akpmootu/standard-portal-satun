@@ -1,3 +1,4 @@
+import {capacityPage} from './capacity-page.js';
 import {sendPortalError} from './error-page.js';
 import {registrationUnits} from './registration-units.js';
 import {evidenceInventory,evidenceManagerPage,manageEvidence} from './evidence-manager.js';
@@ -158,6 +159,12 @@ export function createApp(config, dependencies = {}) {
       if(identity&&req.method==='GET'&&!url.pathname.startsWith('/api/')&&typeof codec.issue==='function'&&Number.isFinite(identity.exp)){
         const draft=await codec.issue('draft',{provider:identity.provider,subject:identity.subject},28800),end=res.end;
         res.end=function(body,...args){if(typeof body==='string'&&body.startsWith('<!doctype html>'))body=body.replace('</head>','<meta name="portal-session" content="'+draft.value+'" data-expires="'+identity.exp*1000+'"><script src="/portal-session.js" defer></script></head>');return end.call(this,body,...args);};
+      }
+      if(['/admin/storage','/api/admin/storage-capacity'].includes(url.pathname)){
+        fail(req.method==='GET','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_CAPACITY_QUERY',400);if(!identity&&url.pathname==='/admin/storage')return redirect('/');fail(identity,'SIGN_IN_REQUIRED',401);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
+        const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);fail(typeof store.capacity==='function','CAPACITY_UNAVAILABLE',503);const report=await store.capacity();
+        if(url.pathname.startsWith('/api/')){res.setHeader('Content-Disposition','attachment; filename="storage-capacity.json"');return json(200,report);}
+        res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(capacityPage(report));
       }
       if(req.method==='GET'&&url.pathname==='/files'){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store),tables=await evidenceInventory(store,access);
