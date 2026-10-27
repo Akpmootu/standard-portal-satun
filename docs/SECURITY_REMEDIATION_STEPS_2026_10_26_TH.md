@@ -47,3 +47,7 @@
 ## ขั้นที่ 5 — หน้าข้อผิดพลาด
 
 GET/HEAD ที่ขอ HTML ได้หน้า error ภาษาไทยตาม status พร้อมทางไปต่อ API/mutation คง JSON ไม่แสดง stack/query/provider error มี explicit GET retry พร้อม Retry-After และไม่มี retry อัตโนมัติ ใช้ CSS ในหน้าและ CSP hash ที่ normalize line endings ตรวจ 229 tests และ browser responsive แล้ว ดู ERROR_PAGES_PLAN_TH.md ขั้นถัดไปคือขั้นที่ 6 frozen dependency lockfile
+
+## ขั้นที่ 6 — Frozen dependencies
+
+ใช้ pnpm11.25.0 และ Node24.x, CI ใช้ frozen-lockfile/ignore-scripts ตาม pnpm-lock.yaml เดิม กำหนด installCommand ให้ Vercel ใช้รุ่นเดียวกัน ตรวจ clean install และ manifestไม่ตรงlockถูกปฏิเสธจริง พร้อม tests229รายการจากชุดติดตั้งแยกผ่าน ตรวจ Transitions เดิมควบคู่โดยไม่เพิ่มUIที่ไม่เกี่ยวกับงาน ดู FROZEN_INSTALL_TH.md ขั้นต่อไปคือขั้นที่7 ความจุตารางและ retention

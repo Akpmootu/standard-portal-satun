@@ -46,13 +46,13 @@
 อ่าน [คู่มือตั้งค่า Google OAuth ภาษาไทย](docs/GOOGLE_SETUP_TH.md) แล้วตั้งค่าด้วยบัญชี Windows ปกติของคุณ ไม่ส่ง client JSON, Client Secret หรือ token ในแชต
 
 ```sh
-pnpm install --frozen-lockfile --ignore-scripts
+corepack pnpm@11.25.0 install --frozen-lockfile --ignore-scripts
 pnpm test
 pnpm check
 pnpm start
 ```
 
-ต้องมี Node.js 22 ขึ้นไป เปิด `http://127.0.0.1:3000` ได้โดยยังไม่มี credentials; ปุ่ม Login จะปิดอยู่พร้อมบอกสิ่งที่รอตั้งค่า เซิร์ฟเวอร์รับเฉพาะ loopback ไม่เปิดให้เครื่องอื่นในเครือข่าย
+ต้องมี Node.js 24.x และ pnpm 11.25.0 (packageManager กำหนดไว้ใน package.json) เปิด `http://127.0.0.1:3000` ได้โดยยังไม่มี credentials; ปุ่ม Login จะปิดอยู่พร้อมบอกสิ่งที่รอตั้งค่า เซิร์ฟเวอร์รับเฉพาะ loopback ไม่เปิดให้เครื่องอื่นในเครือข่าย
 
 ## สิ่งที่ทำแล้ว
 

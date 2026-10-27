@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "preview:ui": "node scripts/preview-ui.js",
     "verify:mou": "node --env-file-if-exists=.env.local scripts/verify-mou.js",
@@ -14,5 +16,9 @@
     "auth:owner": "node --env-file-if-exists=.env.local scripts/authorize-owner.js",
     "verify:google": "node --env-file-if-exists=.env.local scripts/verify-google.js"
   },
-  "dependencies": { "google-auth-library": "11.0.2", "jose": "6.2.10" }
+  "dependencies": {
+    "google-auth-library": "11.0.2",
+    "jose": "6.2.10"
+  },
+  "packageManager": "pnpm@11.25.0"
 }
