@@ -156,7 +156,7 @@ test('unsafe Host and private paths are rejected; security headers are applied',
 test('public deployment adapter remains disabled without release flag', async () => {
   const previous = process.env.ALLOW_PUBLIC_STAGING; delete process.env.ALLOW_PUBLIC_STAGING;
   const result = {};
-  try { await vercelHandler({}, { writeHead: status => { result.status = status; }, end: body => { result.body = body; } }); }
+  try { await vercelHandler({}, { setHeader:()=>{}, getHeader:()=>undefined, writeHead: status => { result.status = status; }, end: body => { result.body = body; } }); }
   finally { if (previous !== undefined) process.env.ALLOW_PUBLIC_STAGING = previous; }
   assert.equal(result.status, 503); assert.match(result.body, /PUBLIC_STAGING_DISABLED/);
 });

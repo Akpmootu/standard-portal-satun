@@ -43,3 +43,7 @@
 ## ขั้นที่ 4 — ส่งคำขอลงทะเบียนใหม่
 
 รองรับแก้ไขข้อมูลในคำขอ rejected ด้วยบัญชี Google เดิมและ expectedVersion ตรงกัน ส่งกลับ pending โดยไม่เพิ่มสิทธิ์ เก็บ snapshot ก่อน/หลังใน audit_log เดิม และแสดงประวัติแก่เจ้าของคำขอ/แอดมิน คำขอ pending หรือ approved ส่งใหม่ไม่ได้ ดูแผนและหลักฐาน tests ใน REGISTRATION_RESUBMISSION_PLAN_TH.md ขั้นถัดไปคือขั้นที่ 5 หน้าแสดงข้อผิดพลาด HTML
+
+## ขั้นที่ 5 — หน้าข้อผิดพลาด
+
+GET/HEAD ที่ขอ HTML ได้หน้า error ภาษาไทยตาม status พร้อมทางไปต่อ API/mutation คง JSON ไม่แสดง stack/query/provider error มี explicit GET retry พร้อม Retry-After และไม่มี retry อัตโนมัติ ใช้ CSS ในหน้าและ CSP hash ที่ normalize line endings ตรวจ 229 tests และ browser responsive แล้ว ดู ERROR_PAGES_PLAN_TH.md ขั้นถัดไปคือขั้นที่ 6 frozen dependency lockfile

@@ -1,3 +1,4 @@
+import {sendPortalError} from './error-page.js';
 import {registrationUnits} from './registration-units.js';
 import {evidenceInventory,evidenceManagerPage,manageEvidence} from './evidence-manager.js';
 import {loadPublicProgress,publicProgressCache} from './public-progress.js';
@@ -40,7 +41,7 @@ import {mouWriterClient,writerConfigured} from './mou-writer-client.js';
 import {mouActionPage} from './mou-action-page.js';
 
 const style = readFile(new URL('../public/styles.css', import.meta.url), 'utf8');
-const workspaceAssets = new Map(['portal-session.js','portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','evidence-files.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
+const workspaceAssets = new Map(['portal-error.js','portal-session.js','portal-scenic.css','portal-ui.js','landing.css','landing.js','portal-layout.css','portal-refinement.css','workspace.css','workspace.js','demo-model.js','read-only.css','mou-history.css','mou-action.css','mou-action.js','registration.js','evidence-files.js','modules.css','module-action.js','account.js','management.js','evidence.js','integrations.js'].map(name => ['/'+name, {body:readFile(new URL('../public/'+name, import.meta.url),'utf8'),type:name.endsWith('.css')?'text/css':'text/javascript'}]));
 const landingAssets=new Map([
  ['/satun-coast.webp',{type:'image/webp',body:readFile(new URL('../public/satun-coast.webp',import.meta.url))}],
  ['/satun-thai.woff2',{type:'font/woff2',body:readFile(new URL('../public/satun-thai.woff2',import.meta.url))}],
@@ -91,6 +92,8 @@ export function createApp(config, dependencies = {}) {
     function json(status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
     function redirect(location) { res.writeHead(303, { Location: location }); res.end(); }
     function retryAfter(error){if(error instanceof PortalError&&error.code==='GOOGLE_QUOTA_EXCEEDED'&&Number.isInteger(error.retryAfter))res.setHeader('Retry-After',String(Math.max(1,Math.min(120,error.retryAfter))));}
+    let requestPath=null;
+    const respondError=(error,forceHtml=false)=>{retryAfter(error);return sendPortalError(req,res,{status:error instanceof PortalError?error.status:503,code:error instanceof PortalError?error.code:'SERVICE_UNAVAILABLE',path:requestPath||'',allowHtml:requestPath!==null,forceHtml});};
     try {
       // Vercel schedules against the immutable production deployment hostname.
       // Permit only its exact cron path with the existing bearer; browser routes stay canonical.
@@ -99,6 +102,7 @@ export function createApp(config, dependencies = {}) {
       fail(typeof req.url === 'string' && req.url.startsWith('/') && !req.url.startsWith('//'), 'INVALID_URL', 400);
       const url = new URL(req.url, config.origin);
       fail(url.origin === config.origin, 'INVALID_URL', 400);
+      requestPath=url.pathname;
       if(url.pathname==='/api/public/progress'){
         fail(req.method==='GET','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_PUBLIC_QUERY',400);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED',503);
         try{const summary=await publicProgress();const remaining=Math.max(0,Math.min(60,Math.floor((Date.parse(summary.updatedAt)+60000-Date.now())/1000)));res.setHeader('Cache-Control',summary.stale?'no-store':'public, max-age=0, s-maxage='+remaining);return json(200,summary);}catch(error){retryAfter(error);return json(503,{error:'PUBLIC_SUMMARY_UNAVAILABLE'});}
@@ -257,7 +261,7 @@ export function createApp(config, dependencies = {}) {
         else fail(access.user.role!=='reviewer','REVIEWER_SAVE_DENIED',403);
         const result=await writer.execute(identity,command);await notifyEvent(identity,command,'mou');return json(200,result);
       }
-      if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return json(405, { error: 'WRITES_DISABLED' }); }
+      if (req.method !== 'GET') { res.setHeader('Allow', 'GET'); return respondError(new PortalError('WRITES_DISABLED',405)); }
       if(url.pathname==='/resources'||url.pathname.startsWith('/resources/')||url.pathname==='/admin/archive'){
         if(!identity)return redirect('/');fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
         res.setHeader('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; img-src 'self'");
@@ -349,8 +353,7 @@ export function createApp(config, dependencies = {}) {
           return res.end(readOnlyPage('mou/history',model,{local:config.local,testPreview:dependencies.preview===true}));
         } catch(error) {
           if(url.pathname.startsWith('/api/')||error instanceof PortalError&&error.status<500)throw error;
-          res.writeHead(503,{'Content-Type':'text/html; charset=utf-8'});
-          return res.end(readOnlyPage('mou/history',null,{error:true,local:config.local,role:access.user.role}));
+          return respondError(error instanceof PortalError?error:new PortalError('WORKSPACE_UNAVAILABLE',503),true);
         }
       }
       if (['/dashboard','/mou'].includes(url.pathname)) {
@@ -367,8 +370,7 @@ export function createApp(config, dependencies = {}) {
           return res.end(readOnlyPage(url.pathname.slice(1),model,{local:config.local,testPreview:dependencies.preview===true}));
         } catch(error) {
           if(error instanceof PortalError && error.status<500)throw error;
-          res.writeHead(503, {'Content-Type':'text/html; charset=utf-8'});
-          return res.end(readOnlyPage(url.pathname.slice(1),null,{error:true,local:config.local,role:access.user.role}));
+          return respondError(error instanceof PortalError?error:new PortalError('WORKSPACE_UNAVAILABLE',503),true);
         }
       }
       if (url.pathname === '/' || url.pathname === '/account') {
@@ -385,7 +387,7 @@ export function createApp(config, dependencies = {}) {
         const render=url.pathname==='/account'?page:landingPage;
         return res.end(render({ ...ready, identity, access, writeEnabled:writerConfigured(config), csrf: identity?.csrf }));
       }
-      if (!['/api/me', '/api/assessments', '/api/admin/storage-check'].includes(url.pathname)) return json(404, { error: 'NOT_FOUND' });
+      if (!['/api/me', '/api/assessments', '/api/admin/storage-check'].includes(url.pathname)) return respondError(new PortalError('NOT_FOUND',404));
       fail(identity, 'SIGN_IN_REQUIRED', 401);
       fail(ready.storageConfigured, 'STORAGE_NOT_CONFIGURED');
       const access = await resolveAccess(identity, store);
@@ -401,10 +403,7 @@ export function createApp(config, dependencies = {}) {
       const fiscalYear = one(url.searchParams, 'fiscal_year');
       return json(200, { readOnly: true, module, hospitalId, rows: await assessments(store, access, module, hospitalId, fiscalYear) });
     } catch (error) {
-      retryAfter(error);
-      return json(error instanceof PortalError ? error.status : 503, {
-        error: error instanceof PortalError ? error.code : 'SERVICE_UNAVAILABLE',
-      });
+      return respondError(error);
     }
   };
 }
