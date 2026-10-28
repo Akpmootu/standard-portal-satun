@@ -55,3 +55,9 @@ GET/HEAD ที่ขอ HTML ได้หน้า error ภาษาไทย�
 ## ขั้นที่ 7 — ความจุและ retention
 
 เพิ่มหน้าแอดมิน /admin/storage และ JSONรายงาน ใช้หัวตาราง/คอลัมน์key25ตารางแบบboundedbatch เตือน75%/90% ตรวจกริดเกินเพดานแยกจากจำนวนkey ไม่ส่งkeyหรือรายละเอียดส่วนบุคคลในรายงาน คงประวัติ/idempotency receiptsออนไลน์ทั้งหมด ออกแบบลำดับbackup/restore/archive-aware lookupก่อนบำรุงรักษา ไม่เปิดpurgeอัตโนมัติ Tests233ผ่าน ดู STORAGE_CAPACITY_RETENTION_TH.md ขั้นต่อไปคือขั้นที่8 security eventsและการแจ้งเตือนที่ไม่เก็บความลับ
+
+## ขั้นที่ 8 — Security events และสัญญาณเตือน
+
+เพิ่ม structured runtime events กับ request UUID ฝั่ง server, actor HMAC, route/code allowlist, log flood cap และ warning alerts ตาม threshold/cooldown ไม่มี raw request/error/เนื้อหาข้อมูล ไม่มี Google/Telegram writes ใหม่ Tests241ผ่าน ดู SECURITY_EVENTS_TH.md คำเตือนอยู่ใน Vercel logs ยังไม่ใช่ push/email ที่รับรองว่าผู้ดูแลได้รับ ต้องตรวจ retention/access/firewall ของโฮสต์และเลือกช่องทางแจ้งเจ้าหน้าที่เพิ่มเติมก่อนอ้างว่าระบบเฝ้าระวังครบวงจร
+
+ครบการแก้โค้ด 8 ประเด็นตามขอบเขตที่บันทึก ไม่เท่ากับรับรองย้ายระบบ/ข้อมูลหรือปิดเงื่อนไข Vercel ที่ผู้ใช้เลือกให้รอ ขั้นถัดไปคือรวมหลักฐานตรวจรับทั้ง 8 ข้อ แยกข้อจำกัด และยืนยันช่องทางรับแจ้งเตือน/retention ตามเงื่อนไขโฮสต์จริง

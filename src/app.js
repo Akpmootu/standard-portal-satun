@@ -1,4 +1,6 @@
 import {capacityPage} from './capacity-page.js';
+import {randomUUID} from 'node:crypto';
+import {securityEvents} from './security-events.js';
 import {sendPortalError} from './error-page.js';
 import {registrationUnits} from './registration-units.js';
 import {evidenceInventory,evidenceManagerPage,manageEvidence} from './evidence-manager.js';
@@ -69,6 +71,7 @@ async function writeBody(req,maxBytes=50000){
 }
 
 export function createApp(config, dependencies = {}) {
+  const security=securityEvents({secret:config.sessionKey,sink:dependencies.securityLog});
   const codec = dependencies.codec || sessionCodec(config);
   const login = dependencies.login || googleLogin(config);
   const rootStore = dependencies.store || googleStore(config);
@@ -83,6 +86,9 @@ export function createApp(config, dependencies = {}) {
   const ready = readiness(config);
   const publicProgress=publicProgressCache(()=>loadPublicProgress(rootStore.forRequest?rootStore.forRequest():rootStore));
   return async function handle(req, res) {
+    const securityRequestId=randomUUID();let securityIdentity;
+    res.setHeader('X-Portal-Request-Id',securityRequestId);
+    const securityRecord=(code,status)=>security.record({code,status,method:req.method,path:requestPath,requestId:securityRequestId,identity:securityIdentity});
     const store = rootStore.forRequest ? rootStore.forRequest() : rootStore;
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -90,11 +96,11 @@ export function createApp(config, dependencies = {}) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Content-Security-Policy',"default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; font-src 'self'; script-src 'self'");
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    function json(status, value) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
+    function json(status, value) { if(status>=400)securityRecord(value?.error,status);res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(value)); }
     function redirect(location) { res.writeHead(303, { Location: location }); res.end(); }
     function retryAfter(error){if(error instanceof PortalError&&error.code==='GOOGLE_QUOTA_EXCEEDED'&&Number.isInteger(error.retryAfter))res.setHeader('Retry-After',String(Math.max(1,Math.min(120,error.retryAfter))));}
     let requestPath=null;
-    const respondError=(error,forceHtml=false)=>{retryAfter(error);return sendPortalError(req,res,{status:error instanceof PortalError?error.status:503,code:error instanceof PortalError?error.code:'SERVICE_UNAVAILABLE',path:requestPath||'',allowHtml:requestPath!==null,forceHtml});};
+    const respondError=(error,forceHtml=false)=>{const status=error instanceof PortalError?error.status:503;securityRecord(error instanceof PortalError?error.code:'SERVICE_FAILURE',status);retryAfter(error);return sendPortalError(req,res,{status,code:error instanceof PortalError?error.code:'SERVICE_UNAVAILABLE',path:requestPath||'',allowHtml:requestPath!==null,forceHtml});};
     try {
       // Vercel schedules against the immutable production deployment hostname.
       // Permit only its exact cron path with the existing bearer; browser routes stay canonical.
@@ -145,10 +151,12 @@ export function createApp(config, dependencies = {}) {
         try { identity = await login.complete(code, flow); }
         catch { throw new PortalError('GOOGLE_SIGN_IN_FAILED', 401); }
         const issued = await codec.issue('session', { ...identity, csrf: randomToken() }, 900);
+        securityIdentity=identity;securityRecord('LOGIN_SUCCEEDED',303);
         res.setHeader('Set-Cookie', [codec.clear('flow'), issued.cookie]);
         return redirect('/');
       }
       const identity = await codec.read('session', req.headers.cookie);
+      securityIdentity=identity;
       if(url.pathname==='/api/session/recover'){
         fail(req.method==='POST','METHOD_NOT_ALLOWED',405);fail(!url.search,'INVALID_SESSION_RECOVERY',400);fail(req.headers.origin===config.origin,'INVALID_ORIGIN',403);fail(identity,'SIGN_IN_REQUIRED',401);
         const input=await writeBody(req,6000);fail(Object.keys(input).length===1&&typeof input.recoveryToken==='string'&&input.recoveryToken.length<=4096,'INVALID_SESSION_RECOVERY',400);
@@ -215,6 +223,7 @@ export function createApp(config, dependencies = {}) {
         fail(identity, 'SIGN_IN_REQUIRED', 401);
         fail(equalToken(identity.csrf, one(await formBody(req), 'csrf')), 'INVALID_CSRF', 403);
         res.setHeader('Set-Cookie', [codec.clear('session'), codec.clear('flow')]);
+        securityRecord('LOGOUT_SUCCEEDED',303);
         return redirect('/');
       }
       if(req.method==='POST'&&['/api/files/start','/api/files/chunk','/api/files/status','/api/files/finish'].includes(url.pathname)){
@@ -233,7 +242,7 @@ export function createApp(config, dependencies = {}) {
         const {csrf,...input}=await writeBody(req);fail(equalToken(identity.csrf,csrf),'INVALID_CSRF',403);const command=normalizeManagementCommand(input);
         fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');const access=await resolveAccess(identity,store);fail(access.status==='active','APPROVAL_REQUIRED',403);
         fail(!['account','setting','announcement','response'].includes(command.action)||access.user.role==='admin','ADMIN_REQUIRED',403);
-        const result=await writer.execute(identity,command,'management');if(['comment','response'].includes(command.action))await notifyEvent(identity,command,'hait');return json(200,result);
+        const result=await writer.execute(identity,command,'management');if(command.action==='account'&&result.ok&&!result.replayed)securityRecord('ACCESS_CHANGED',200);if(['comment','response'].includes(command.action))await notifyEvent(identity,command,'hait');return json(200,result);
       }
       if(req.method==='POST'&&url.pathname==='/api/assessment/write'){
         fail(config.moduleWrites&&writerConfigured(config),'WRITES_DISABLED');
@@ -251,7 +260,7 @@ export function createApp(config, dependencies = {}) {
         const command=normalizeRegistrationCommand(input);fail(ready.storageConfigured,'STORAGE_NOT_CONFIGURED');
         if(['register','resubmit'].includes(command.action)){const selected=await store.directory([command.organization]);fail(selected.length===1&&selected[0].id===command.organization,'REGISTRATION_UNIT_UNAVAILABLE',400);}
         if(!['register','resubmit'].includes(command.action)){const access=await resolveAccess(identity,store);fail(access.status==='active'&&access.user.role==='admin','ADMIN_REQUIRED',403);}
-        return json(200,await writer.execute(identity,command,'registration'));
+        const result=await writer.execute(identity,command,'registration');if(command.action==='approve'&&result.ok&&!result.replayed)securityRecord('ACCESS_CHANGED',200);return json(200,result);
       }
       if(req.method==='POST'&&url.pathname==='/api/mou/write'){
         fail(writerConfigured(config),'WRITES_DISABLED');
