@@ -31,6 +31,7 @@ import { readFile } from 'node:fs/promises';
 import { readiness } from './config.js';
 import { sessionCodec, equalToken, randomToken } from './session.js';
 import { googleLogin } from './google-login.js';
+import { thaidLogin } from './thaid-login.js';
 import { googleStore } from './google-store.js';
 import { resolveAccess, assessments, requireHospital } from './authorization.js';
 import { fail, PortalError } from './errors.js';
@@ -74,6 +75,7 @@ export function createApp(config, dependencies = {}) {
   const security=securityEvents({secret:config.sessionKey,sink:dependencies.securityLog});
   const codec = dependencies.codec || sessionCodec(config);
   const login = dependencies.login || googleLogin(config);
+  const thaid = dependencies.thaid || thaidLogin(config);
   const rootStore = dependencies.store || googleStore(config);
   const writer = dependencies.writer || mouWriterClient(config);
   const drive = dependencies.drive || evidenceDrive(config);
@@ -143,13 +145,36 @@ export function createApp(config, dependencies = {}) {
         res.setHeader('Set-Cookie', codec.clear('flow'));
         fail(ready.loginConfigured, 'LOGIN_NOT_CONFIGURED');
         const flow = await codec.read('flow', req.headers.cookie);
-        fail(flow && equalToken(flow.state, one(url.searchParams, 'state')), 'INVALID_OAUTH_STATE', 400);
+        fail(flow && flow.provider !== 'thaid' && equalToken(flow.state, one(url.searchParams, 'state')), 'INVALID_OAUTH_STATE', 400);
         fail(!one(url.searchParams, 'error'), 'GOOGLE_SIGN_IN_CANCELLED', 400);
         const code = one(url.searchParams, 'code');
         fail(code && code.length <= 4096, 'INVALID_AUTHORIZATION_CODE', 400);
         let identity;
         try { identity = await login.complete(code, flow); }
         catch { throw new PortalError('GOOGLE_SIGN_IN_FAILED', 401); }
+        const issued = await codec.issue('session', { ...identity, csrf: randomToken() }, 900);
+        securityIdentity=identity;securityRecord('LOGIN_SUCCEEDED',303);
+        res.setHeader('Set-Cookie', [codec.clear('flow'), issued.cookie]);
+        return redirect('/');
+      }
+      if (req.method === 'GET' && url.pathname === '/auth/thaid') {
+        fail(ready.thaidConfigured, 'THAID_NOT_CONFIGURED');
+        const { flow, url: authorizationUrl } = await thaid.begin();
+        res.setHeader('Set-Cookie', (await codec.issue('flow', { ...flow, provider: 'thaid' }, 600)).cookie);
+        return redirect(authorizationUrl);
+      }
+      if (req.method === 'GET' && url.pathname === '/auth/thaid/callback') {
+        res.setHeader('Set-Cookie', codec.clear('flow'));
+        fail(ready.thaidConfigured, 'THAID_NOT_CONFIGURED');
+        const flow = await codec.read('flow', req.headers.cookie);
+        fail(flow && flow.provider === 'thaid' && equalToken(flow.state, one(url.searchParams, 'state')), 'INVALID_OAUTH_STATE', 400);
+        fail(!one(url.searchParams, 'error'), 'THAID_SIGN_IN_CANCELLED', 400);
+        const code = one(url.searchParams, 'code');
+        fail(code && code.length <= 4096, 'INVALID_AUTHORIZATION_CODE', 400);
+        let identity;
+        try { identity = await thaid.complete(code, flow); }
+        catch { throw new PortalError('THAID_SIGN_IN_FAILED', 401); }
+        fail(identity?.provider === 'thaid' && /^[a-f0-9]{64}$/.test(identity.subject || ''), 'THAID_SIGN_IN_FAILED', 401);
         const issued = await codec.issue('session', { ...identity, csrf: randomToken() }, 900);
         securityIdentity=identity;securityRecord('LOGIN_SUCCEEDED',303);
         res.setHeader('Set-Cookie', [codec.clear('flow'), issued.cookie]);

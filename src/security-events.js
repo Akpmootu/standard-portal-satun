@@ -1,14 +1,14 @@
 import {createHmac,randomUUID} from 'node:crypto';
 
 const routes=new Map(Object.entries({
- '/auth/google':'login','/auth/google/callback':'oauth_callback','/auth/logout':'logout',
+ '/auth/google':'login','/auth/google/callback':'oauth_callback','/auth/thaid':'login','/auth/thaid/callback':'oauth_callback','/auth/logout':'logout',
  '/api/session/recover':'session_recovery','/api/mou/write':'mou_write','/api/assessment/write':'assessment_write',
  '/api/registration':'registration','/api/management':'management','/api/integrations/cron':'cron',
  '/api/public/progress':'public_progress','/api/admin/storage-capacity':'storage_capacity','/admin/storage':'storage_capacity',
  '/files':'files','/api/files/start':'file_upload','/api/files/chunk':'file_upload','/api/files/status':'file_upload','/api/files/finish':'file_upload',
  '/api/files/discard':'file_retire','/api/files/reconcile':'file_reconcile',
 }));
-const codes=new Set(['INVALID_HOST','INVALID_URL','INVALID_ORIGIN','INVALID_CSRF','INVALID_OAUTH_STATE','GOOGLE_SIGN_IN_CANCELLED','GOOGLE_SIGN_IN_FAILED',
+const codes=new Set(['INVALID_HOST','INVALID_URL','INVALID_ORIGIN','INVALID_CSRF','INVALID_OAUTH_STATE','GOOGLE_SIGN_IN_CANCELLED','GOOGLE_SIGN_IN_FAILED','THAID_SIGN_IN_CANCELLED','THAID_SIGN_IN_FAILED',
  'SIGN_IN_REQUIRED','ADMIN_REQUIRED','ACCOUNT_DISABLED','APPROVAL_REQUIRED','HOSPITAL_ACCESS_DENIED','REVIEW_SCOPE_DENIED','REVIEWER_SAVE_DENIED','FILE_ACCESS_DENIED','NOTIFICATION_ACCESS_DENIED',
  'RECOVERY_ACCOUNT_MISMATCH','RECOVERY_CONTEXT_EXPIRED','CRON_ACCESS_DENIED','CRON_OWNER_NOT_APPROVED','AMBIGUOUS_IDENTITY','INVALID_USER_MAPPING','IDENTITY_NOT_APPROVED',
  'GOOGLE_QUOTA_EXCEEDED','PUBLIC_SUMMARY_UNAVAILABLE','SCHEDULED_SUMMARY_UNAVAILABLE','WRITER_UNAVAILABLE','WRITE_RESULT_UNKNOWN','COMMIT_UNCERTAIN','BODY_TOO_LARGE','REQUEST_ID_REUSED',
@@ -29,9 +29,9 @@ export function securityEvents({secret='',sink=record=>{(record.event==='portal_
    const code=codes.has(input.code)?input.code:status>=500?'SERVICE_FAILURE':status===403?'ACCESS_DENIED':status===401?'SIGN_IN_REQUIRED':status===429?'QUOTA_LIMITED':null;
    if(!code)return;
    const time=now(),timestamp=new Date(time).toISOString(),requestId=uuid.test(input.requestId||'')?input.requestId:randomUUID();
-   const category=code==='ACCESS_CHANGED'?'access_change':status>=500?'service':status===429?'quota':success.has(code)?'session':code.includes('OAUTH')||code.startsWith('GOOGLE_SIGN_IN')?'oauth':'access';
+   const category=code==='ACCESS_CHANGED'?'access_change':status>=500?'service':status===429?'quota':success.has(code)?'session':code.includes('OAUTH')||code.startsWith('GOOGLE_SIGN_IN')||code.startsWith('THAID_SIGN_IN')?'oauth':'access';
    let actor='anonymous';const identity=input.identity;
-   if(secret&&identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length<=512)actor=createHmac('sha256',secret).update('portal-security-actor-v1\0google\0'+identity.subject).digest('hex').slice(0,24);
+   if(secret&&['google','thaid'].includes(identity?.provider)&&typeof identity.subject==='string'&&identity.subject.length<=512)actor=createHmac('sha256',secret).update('portal-security-actor-v1\0'+identity.provider+'\0'+identity.subject).digest('hex').slice(0,24);
    const record={event:'portal_security_event',timestamp,requestId,severity:status>=500?'error':status>=400?'warning':'info',route:routes.get(input.path)||'other',method:['GET','POST','HEAD','PUT','PATCH','DELETE','OPTIONS'].includes(input.method)?input.method:'OTHER',status,code,actor};
    if(windowStart===null||time-windowStart>=60000){if(suppressed)emit({event:'portal_security_suppressed',timestamp,severity:'warning',count:suppressed});windowStart=time;emitted=0;suppressed=0;}
    if(emitted<60){emit(record);emitted++;}else suppressed++;

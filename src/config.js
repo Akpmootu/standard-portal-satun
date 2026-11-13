@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fail } from './errors.js';
+import { THAID_DEFAULTS } from './thaid-login.js';
 
 export function readConfig(env = process.env) {
   const origin = new URL(env.APP_ORIGIN || 'http://127.0.0.1:3000');
@@ -13,6 +14,11 @@ export function readConfig(env = process.env) {
   const config = {
     origin: origin.origin, local, secure: origin.protocol === 'https:', sessionKey,
     login: { clientId: env.GOOGLE_LOGIN_CLIENT_ID || '', clientSecret: env.GOOGLE_LOGIN_CLIENT_SECRET || '' },
+    thaid: {
+      clientId: env.THAID_CLIENT_ID || '', clientSecret: env.THAID_CLIENT_SECRET || '',
+      subjectKey: env.THAID_SUBJECT_KEY_HEX || '', scope: env.THAID_SCOPE || THAID_DEFAULTS.scope,
+      authUrl: env.THAID_AUTH_URL || THAID_DEFAULTS.authUrl, tokenUrl: env.THAID_TOKEN_URL || THAID_DEFAULTS.tokenUrl,
+    },
     storage: {
       clientId: env.GOOGLE_STORAGE_CLIENT_ID || '', clientSecret: env.GOOGLE_STORAGE_CLIENT_SECRET || '',
       refreshToken: env.GOOGLE_STORAGE_REFRESH_TOKEN || '',
@@ -29,6 +35,14 @@ export function readConfig(env = process.env) {
     referenceSheetId: env.GOOGLE_REFERENCE_SHEET_ID || '10UtjMGPnBKeMasgtrwYs3SPbqSu-f_RIhPU2tHYAaJw',
     evidenceFolderId: env.GOOGLE_EVIDENCE_FOLDER_ID || '1d3PzVAq2dY7dToKVYHMq6IjBRLC7oMOi',
   };
+  if (config.thaid.subjectKey) fail(/^[a-f\d]{64}$/i.test(config.thaid.subjectKey), 'INVALID_THAID_SUBJECT_KEY');
+  for (const endpoint of [config.thaid.authUrl, config.thaid.tokenUrl]) {
+    const target = new URL(endpoint);
+    // Plain HTTP is accepted only for a loopback mock while the portal itself runs locally.
+    fail(!target.username && !target.password && !target.hash && (target.protocol === 'https:'
+      || local && target.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(target.hostname)), 'INVALID_THAID_ENDPOINT');
+  }
+  fail(/^[A-Za-z0-9_ .:-]{1,200}$/.test(config.thaid.scope), 'INVALID_THAID_SCOPE');
   for (const id of [config.applicationSheetId, config.referenceSheetId, config.evidenceFolderId]) {
     fail(/^[A-Za-z0-9_-]{10,200}$/.test(id), 'INVALID_RESOURCE_ID');
   }
@@ -41,6 +55,7 @@ export function readConfig(env = process.env) {
 export function readiness(config) {
   return {
     loginConfigured: Boolean(config.sessionKey && config.login.clientId && config.login.clientSecret),
+    thaidConfigured: Boolean(config.sessionKey && config.thaid.clientId && config.thaid.clientSecret && config.thaid.subjectKey),
     storageConfigured: Boolean(config.storage.clientId && config.storage.clientSecret && config.storage.refreshToken),
   };
 }
@@ -67,6 +82,12 @@ export async function loadLocalEnvironment(directory = process.cwd(), environmen
   if(evidenceFolder)env.GOOGLE_EVIDENCE_FOLDER_ID ||= evidenceFolder.id;
   if(writer){env.MOU_WRITER_URL ||= writer.url;env.MOU_WRITER_SECRET ||= writer.secret;}
   env.SESSION_KEY_HEX ||= localSession?.key;
+  const thaid = await optionalJson(resolve(directory, '.secrets/thaid-client.json'));
+  if (thaid) {
+    env.THAID_CLIENT_ID ||= thaid.clientId;
+    env.THAID_CLIENT_SECRET ||= thaid.clientSecret;
+    env.THAID_SUBJECT_KEY_HEX ||= thaid.subjectKey;
+  }
   if (web) {
     env.GOOGLE_LOGIN_CLIENT_ID ||= web.client_id;
     env.GOOGLE_LOGIN_CLIENT_SECRET ||= web.client_secret;

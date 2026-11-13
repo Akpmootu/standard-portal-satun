@@ -9,11 +9,11 @@ export function acceptsErrorHtml(req,path){
  return String(req.headers.accept||'').split(',').some(part=>{const [type,...parameters]=part.trim().toLowerCase().split(';');if(!['text/html','application/xhtml+xml'].includes(type.trim()))return false;const q=parameters.find(p=>p.trim().startsWith('q='));return !q||Number(q.trim().slice(2))>0;});
 }
 export function errorPage({status,code,retryAfter=0,canRetry=false}){
- const oauth=['INVALID_OAUTH_STATE','GOOGLE_SIGN_IN_CANCELLED','GOOGLE_SIGN_IN_FAILED','INVALID_AUTHORIZATION_CODE'].includes(code),quota=code==='GOOGLE_QUOTA_EXCEEDED';
+ const oauth=['INVALID_OAUTH_STATE','GOOGLE_SIGN_IN_CANCELLED','GOOGLE_SIGN_IN_FAILED','THAID_SIGN_IN_CANCELLED','THAID_SIGN_IN_FAILED','INVALID_AUTHORIZATION_CODE'].includes(code),quota=code==='GOOGLE_QUOTA_EXCEEDED';
  let title='บริการยังไม่พร้อมใช้งาน',message='ยังเปิดข้อมูลหน้านี้ไม่ได้ในขณะนี้ กรุณารอสักครู่แล้วลองใหม่ หากยังพบปัญหาให้ติดต่อผู้ดูแลระบบ',secondary='/account',label='ตรวจบัญชีของฉัน';
  if(code==='WORKSPACE_UNAVAILABLE'){title='ยังอ่านข้อมูลจาก Sheets ไม่สำเร็จ';message='ยังแสดงผลประเมินล่าสุดไม่ได้ กรุณาลองใหม่ภายหลัง ระบบไม่ใช้ยอดศูนย์แทนข้อมูลที่อ่านไม่สำเร็จ';}
  if(status===404){title='ไม่พบหน้าที่ต้องการ';message='หน้าหรือไฟล์นี้อาจถูกย้าย หรือที่อยู่ไม่ถูกต้อง กลับหน้าหลักเพื่อเลือกเมนูที่ต้องการได้';}
- else if(status===401||oauth){title='กรุณาเข้าสู่ระบบอีกครั้ง';message='การยืนยันตัวตนยังไม่สำเร็จหรือเซสชันหมดอายุ กลับเข้าสู่ระบบด้วยบัญชี Google ของคุณ หากมีฟอร์มค้างในแท็บอื่น ให้เก็บแท็บนั้นไว้';secondary='/#login';label='เข้าสู่ระบบอีกครั้ง';}
+ else if(status===401||oauth){title='กรุณาเข้าสู่ระบบอีกครั้ง';message='การยืนยันตัวตนยังไม่สำเร็จหรือเซสชันหมดอายุ กลับเข้าสู่ระบบด้วยบัญชี Google หรือ ThaID ของคุณ หากมีฟอร์มค้างในแท็บอื่น ให้เก็บแท็บนั้นไว้';secondary='/#login';label='เข้าสู่ระบบอีกครั้ง';}
  else if(status===403){title='ยังไม่มีสิทธิ์เปิดหน้านี้';message='บัญชีนี้ยังไม่ได้รับสิทธิ์สำหรับข้อมูลหรือการทำงานส่วนนี้ ตรวจสถานะบัญชีและหน่วยบริการที่ได้รับมอบหมาย หรือติดต่อผู้ดูแลระบบ';if(code==='APPROVAL_REQUIRED'){secondary='/register';label='ตรวจสถานะคำขอใช้งาน';}}
  else if(status>=400&&status<500){title='ไม่สามารถเปิดคำขอนี้ได้';message='รูปแบบคำขอหรือเงื่อนไขของข้อมูลไม่ถูกต้อง กรุณาเลือกเมนูใหม่จากหน้าหลัก หากกำลังแก้ฟอร์มในแท็บอื่น ให้เก็บข้อมูลไว้ก่อน';}
  if(quota){title='กำลังมีการเรียกใช้ข้อมูลจำนวนมาก';message='ระบบพักการอ่านข้อมูลชั่วคราวเพื่อรักษาโควตาบริการ กรุณารอตามเวลาที่แจ้งก่อนลองใหม่';}
@@ -25,7 +25,7 @@ export function sendPortalError(req,res,{status=503,code='SERVICE_UNAVAILABLE',p
  status=Number.isInteger(status)&&status>=400&&status<=599?status:503;
  const html=allowHtml&&(forceHtml||acceptsErrorHtml(req,path));
  res.setHeader('Cache-Control','no-store');res.setHeader('Vary','Accept');res.setHeader('Referrer-Policy','no-referrer');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','DENY');res.setHeader('Permissions-Policy','camera=(), microphone=(), geolocation=()');res.setHeader('Content-Security-Policy',errorPageCsp);
- const canRetry=html&&req.method==='GET'&&status>=500&&path.startsWith('/')&&!path.startsWith('/auth/')&&!['PUBLIC_STAGING_DISABLED','CONFIGURATION_REQUIRED','LOGIN_NOT_CONFIGURED','STORAGE_NOT_CONFIGURED'].includes(code);
+ const canRetry=html&&req.method==='GET'&&status>=500&&path.startsWith('/')&&!path.startsWith('/auth/')&&!['PUBLIC_STAGING_DISABLED','CONFIGURATION_REQUIRED','LOGIN_NOT_CONFIGURED','THAID_NOT_CONFIGURED','STORAGE_NOT_CONFIGURED'].includes(code);
  res.writeHead(status,{'Content-Type':html?'text/html; charset=utf-8':'application/json; charset=utf-8'});
  return res.end(html?errorPage({status,code,retryAfter:Number(res.getHeader('Retry-After')),canRetry}):JSON.stringify({error:code}));
 }

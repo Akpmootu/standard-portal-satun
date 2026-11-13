@@ -44,8 +44,8 @@ export function attachedEvidence(tables,actor,fileId,recordId,module,hospitalId,
  fail(f.upload_state==='complete'&&evidenceLimit(f.mime_type)>0&&f.record_id===recordId&&f.record_type===module&&f.hospital_id===hospitalId&&(!requireCreator||f.created_by===actor.id),'FILE_ACCESS_DENIED',403);return f;
 }
 export function writeActor(identity,tables){
-  fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
-  const links=tables.identities.filter(r=>r.provider==='google'&&r.provider_subject===identity.subject);
+  fail(['google','thaid'].includes(identity?.provider)&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
+  const links=tables.identities.filter(r=>r.provider===identity.provider&&r.provider_subject===identity.subject);
   fail(links.length===1&&links[0].status==='active'&&links[0].approved_by&&links[0].approved_at&&links[0].legacy_user_id,'APPROVAL_REQUIRED',403);
   const users=tables.users.filter(r=>r.id===links[0].legacy_user_id);
   fail(users.length===1&&users[0].account_status==='active'&&['admin','hospital','reviewer'].includes(users[0].role),'ACCOUNT_DISABLED',403);

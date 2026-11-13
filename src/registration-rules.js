@@ -6,7 +6,9 @@ export function normalizeRegistrationCommand(c){
  fail(c&&typeof c==='object'&&!Array.isArray(c),'INVALID_REGISTRATION',400);
  const base=['requestId','action'];
  const profile=['displayName','jobTitle','organization','phone'];
- const extra=c.action==='register'?profile:c.action==='resubmit'?[...profile,'registrationId','expectedVersion']:['approve','reject'].includes(c.action)?['registrationId','expectedVersion','role','hospitalId','hospitalIds','fiscalYears','note']:[];
+ // contactEmail is only for providers without a verified e-mail claim (ThaID).
+ const contact=Object.hasOwn(c,'contactEmail')?['contactEmail']:[];
+ const extra=c.action==='register'?[...profile,...contact]:c.action==='resubmit'?[...profile,...contact,'registrationId','expectedVersion']:['approve','reject'].includes(c.action)?['registrationId','expectedVersion','role','hospitalId','hospitalIds','fiscalYears','note']:[];
  fail(extra.length&&Object.keys(c).length===base.length+extra.length&&Object.keys(c).every(k=>[...base,...extra].includes(k)),'INVALID_REGISTRATION',400);
  fail(typeof c.requestId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(c.requestId),'INVALID_REQUEST_ID',400);
  const out={requestId:c.requestId.toLowerCase(),action:c.action};
@@ -17,6 +19,7 @@ export function normalizeRegistrationCommand(c){
   fail(/^\S+(?:\s+\S+)+$/u.test(out.displayName),'REGISTRATION_FULL_NAME_REQUIRED',400);
   fail(/^[0-9]{10}$/.test(out.phone),'REGISTRATION_PHONE_REQUIRED',400);
   fail(MOU_HOSPITAL_IDS.includes(out.organization),'REGISTRATION_UNIT_REQUIRED',400);
+  if(contact.length){out.contactEmail=text(c.contactEmail,320).toLowerCase();fail(/^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(out.contactEmail),'REGISTRATION_EMAIL_REQUIRED',400);}
  }else{
   Object.assign(out,{registrationId:text(c.registrationId,100),expectedVersion:c.expectedVersion,role:c.role,hospitalId:c.hospitalId,hospitalIds:c.hospitalIds,fiscalYears:c.fiscalYears,note:text(c.note,2000,false)});
   fail(/^reg-[a-f0-9-]{36}$/.test(out.registrationId)&&Number.isSafeInteger(c.expectedVersion)&&c.expectedVersion>0,'INVALID_REGISTRATION',400);
@@ -34,27 +37,30 @@ export function normalizeRegistrationCommand(c){
 }
 export function planRegistration(tables,identity,input,sha,now=new Date()){
  const c=normalizeRegistrationCommand(input),timestamp=bangkokTimestamp(now);
- fail(identity?.provider==='google'&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
+ fail(['google','thaid'].includes(identity?.provider)&&typeof identity.subject==='string'&&identity.subject.length>0&&identity.subject.length<=255,'SIGN_IN_REQUIRED',401);
  const applicant=['register','resubmit'].includes(c.action);
- const actor=applicant?{id:'google:'+identity.subject}:writeActor(identity,tables);
+ // Google supplies a verified e-mail; ThaID has none, so the applicant types a contact e-mail.
+ const email=identity.provider==='google'?identity.email:c.contactEmail;
+ if(applicant)fail(identity.provider==='google'?c.contactEmail===undefined:typeof c.contactEmail==='string','REGISTRATION_EMAIL_REQUIRED',400);
+ const actor=applicant?{id:identity.provider+':'+identity.subject}:writeActor(identity,tables);
  if(!applicant)fail(actor.role==='admin','ADMIN_REQUIRED',403);
  fail(typeof sha==='string'&&/^[a-f0-9]{64}$/.test(sha),'INVALID_PAYLOAD_HASH',400);
  const receipts=tables.write_requests.filter(r=>r.request_id===c.requestId);fail(receipts.length<=1,'DUPLICATE_REQUEST_RECORD');
  if(receipts.length){const p=receipts[0];fail(p.actor_id===actor.id&&p.operation===c.action&&p.payload_sha256===sha&&p.record_type==='registration','REQUEST_ID_REUSED',409);fail(p.state==='committed','REQUEST_NOT_COMMITTED',409);return {replayed:true,result:{ok:true,requestId:c.requestId,recordId:p.record_id,version:p.result_version,replayed:true}};}
  const changes=[];let next,before=null;
  if(c.action==='register'){
-  fail(typeof identity.email==='string'&&identity.email.length<=320&&identity.email.includes('@'),'SIGN_IN_REQUIRED',401);
-  fail(!tables.registration_requests.some(r=>r.provider==='google'&&r.provider_subject===identity.subject),'REGISTRATION_EXISTS',409);
+  fail(typeof email==='string'&&email.length<=320&&email.includes('@'),'SIGN_IN_REQUIRED',401);
+  fail(!tables.registration_requests.some(r=>r.provider===identity.provider&&r.provider_subject===identity.subject),'REGISTRATION_EXISTS',409);
   // Registration grants nothing. An existing account can submit its verified-name profile once.
-  next={id:'reg-'+c.requestId,provider:'google',provider_subject:identity.subject,email:identity.email,display_name:c.displayName,job_title:c.jobTitle,organization:c.organization,phone:c.phone,requested_at:timestamp,status:'pending',decided_at:'',decided_by:'',assigned_role:'',hospital_id:'',hospital_ids:'[]',fiscal_years:'[]',decision_note:'',_version:1,_request_id:c.requestId};
+  next={id:'reg-'+c.requestId,provider:identity.provider,provider_subject:identity.subject,email,display_name:c.displayName,job_title:c.jobTitle,organization:c.organization,phone:c.phone,requested_at:timestamp,status:'pending',decided_at:'',decided_by:'',assigned_role:'',hospital_id:'',hospital_ids:'[]',fiscal_years:'[]',decision_note:'',_version:1,_request_id:c.requestId};
   changes.push({table:'registration_requests',record:next,existing:false});
  }else if(c.action==='resubmit'){
   const matches=tables.registration_requests.filter(r=>r.id===c.registrationId);fail(matches.length===1,'REGISTRATION_NOT_FOUND',404);const r=matches[0];
   fail(r.provider===identity.provider&&r.provider_subject===identity.subject,'REGISTRATION_OWNER_REQUIRED',403);
   fail(tables.registration_requests.filter(x=>x.provider===identity.provider&&x.provider_subject===identity.subject).length===1,'AMBIGUOUS_REGISTRATION',409);
   fail(r._version===c.expectedVersion,'VERSION_CONFLICT',409);fail(r.status==='rejected','REGISTRATION_RESUBMIT_DENIED',409);
-  fail(typeof identity.email==='string'&&identity.email.length<=320&&identity.email.includes('@'),'SIGN_IN_REQUIRED',401);before=r;
-  next={...r,email:identity.email,display_name:c.displayName,job_title:c.jobTitle,organization:c.organization,phone:c.phone,requested_at:timestamp,status:'pending',decided_at:'',decided_by:'',assigned_role:'',hospital_id:'',hospital_ids:'[]',fiscal_years:'[]',decision_note:'',_version:r._version+1,_request_id:c.requestId};
+  fail(typeof email==='string'&&email.length<=320&&email.includes('@'),'SIGN_IN_REQUIRED',401);before=r;
+  next={...r,email,display_name:c.displayName,job_title:c.jobTitle,organization:c.organization,phone:c.phone,requested_at:timestamp,status:'pending',decided_at:'',decided_by:'',assigned_role:'',hospital_id:'',hospital_ids:'[]',fiscal_years:'[]',decision_note:'',_version:r._version+1,_request_id:c.requestId};
   changes.push({table:'registration_requests',record:next,existing:true});
  }else{
   const matches=tables.registration_requests.filter(r=>r.id===c.registrationId);fail(matches.length===1,'REGISTRATION_NOT_FOUND',404);const r=matches[0];before=r;
@@ -70,7 +76,7 @@ export function planRegistration(tables,identity,input,sha,now=new Date()){
    }else{
     fail(!tables.users.some(u=>u.id===userId||u.username===r.email),'EXISTING_ACCOUNT_REVIEW_REQUIRED',409);
     changes.push({table:'users',existing:false,record:{id:userId,username:r.email,role:c.role,user_group:'',last_login_at:'',hospital_id:c.hospitalId,created_at:timestamp,account_status:'active',_version:1,_request_id:c.requestId}});
-    changes.push({table:'identities',existing:false,record:{id:'identity-'+r.id,provider:r.provider,provider_subject:r.provider_subject,legacy_user_id:userId,email:r.email,email_verified:'true',status:'active',approved_by:actor.id,approved_at:timestamp,created_at:timestamp,_version:1}});
+    changes.push({table:'identities',existing:false,record:{id:'identity-'+r.id,provider:r.provider,provider_subject:r.provider_subject,legacy_user_id:userId,email:r.email,email_verified:r.provider==='google'?'true':'false',status:'active',approved_by:actor.id,approved_at:timestamp,created_at:timestamp,_version:1}});
    }
    if(['reviewer','admin'].includes(c.role)){
     fail(!tables.reviewer_profiles.some(p=>p.user_id===userId),'REVIEW_PROFILE_EXISTS',409);
